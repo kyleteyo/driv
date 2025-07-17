@@ -4,6 +4,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import os
 import json
+import streamlit as st
+from functools import lru_cache
+# Removed api_optimizer import to fix compatibility
 
 class SheetsManager:
     def __init__(self):
@@ -11,6 +14,7 @@ class SheetsManager:
         self.setup_credentials()
         self.connect_to_sheets()
         self.setup_worksheets()
+        self._cache_timeout = 1800  # 30 minutes cache timeout
     
     def setup_credentials(self):
         """Setup Google Sheets API credentials"""
@@ -85,12 +89,13 @@ class SheetsManager:
             headers = ['Username', 'Last_Drive_Date', 'Total_Distance_3_Months', 'Currency_Maintained', 'Currency_Expiry_Date', 'Last_Updated']
             self.belrex_worksheet.append_row(headers)
     
-    def check_user_qualifications(self, username):
+    @st.cache_data(ttl=7200, show_spinner=False)  # 2 hour cache for qualifications
+    def check_user_qualifications(_self, username):
         """Check if user is qualified for Terrex and/or Belrex based on presence in tracker sheets"""
         qualifications = {'terrex': False, 'belrex': False, 'full_name': '', 'rank': '', 'is_admin': False}
         
         # Check if user is admin
-        is_admin = self.is_admin_user(username)
+        is_admin = _self.is_admin_user(username)
         qualifications['is_admin'] = is_admin
         
         # Special handling for admin/test accounts
@@ -106,10 +111,10 @@ class SheetsManager:
         try:
             # Check Terrex qualifications
             try:
-                terrex_records = self.terrex_worksheet.get_all_records()
+                terrex_records = _self.terrex_worksheet.get_all_records()
             except:
                 # Handle duplicate headers by using raw values
-                terrex_values = self.terrex_worksheet.get_all_values()
+                terrex_values = _self.terrex_worksheet.get_all_values()
                 terrex_records = []
                 if len(terrex_values) > 1:
                     headers = terrex_values[0]
@@ -137,10 +142,10 @@ class SheetsManager:
             
             # Check Belrex qualifications
             try:
-                belrex_records = self.belrex_worksheet.get_all_records()
+                belrex_records = _self.belrex_worksheet.get_all_records()
             except:
                 # Handle duplicate headers by using raw values
-                belrex_values = self.belrex_worksheet.get_all_values()
+                belrex_values = _self.belrex_worksheet.get_all_values()
                 belrex_records = []
                 if len(belrex_values) > 1:
                     headers = belrex_values[0]
@@ -173,6 +178,25 @@ class SheetsManager:
         
         return qualifications
     
+    def clear_caches(self):
+        """Clear all cached data to force refresh"""
+        # Clear Streamlit cache for this instance
+        if hasattr(st, 'cache_data'):
+            st.cache_data.clear()
+        if hasattr(st, 'cache_resource'):
+            st.cache_resource.clear()
+        
+        # Clear any internal caches
+        if hasattr(self, '_cached_data'):
+            self._cached_data = {}
+        
+        # Clear performance optimization caches
+        try:
+            from performance_config import clear_all_caches
+            clear_all_caches()
+        except ImportError:
+            pass
+    
     def add_mileage_log(self, log_data):
         """Add a new mileage log entry"""
         try:
@@ -191,22 +215,52 @@ class SheetsManager:
             # Only append to Mileage_Logs worksheet - do not modify tracker sheets
             self.mileage_worksheet.append_row(row)
             
+            # Clear relevant caches to ensure fresh data after new entry
+            self._clear_related_caches()
+            
             return True
             
         except Exception as e:
             raise Exception(f"Failed to add mileage log: {str(e)}")
     
-    def calculate_3_month_distance(self, username, vehicle_type):
+    def _clear_related_caches(self):
+        """Clear caches that should refresh after new mileage entries"""
+        try:
+            # Clear Streamlit caches for functions that depend on mileage data
+            if hasattr(st, 'cache_data'):
+                # Clear specific cached functions
+                self.get_all_personnel_status.clear()
+                self.calculate_3_month_distance.clear()
+                self.calculate_expiry_date.clear()
+                self.get_user_tracker_data.clear()
+            
+            # Clear session state caches
+            cache_keys_to_clear = [
+                'name_lookup_cache',
+                'personnel_status_cache', 
+                'team_dashboard_cache',
+                'currency_status_cache'
+            ]
+            
+            for key in cache_keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    
+        except Exception as e:
+            pass  # Fail silently for cache clearing
+    
+    @st.cache_data(ttl=1800, show_spinner=False)  # 30 minutes cache for calculations  
+    def calculate_3_month_distance(_self, username, vehicle_type):
         """Calculate total distance driven in the last 3 months"""
         try:
             # Get all mileage records for the user and vehicle type
             expected_headers = ['Username', 'Date_of_Drive', 'Vehicle_No_MID', 'Initial_Mileage_KM', 'Final_Mileage_KM', 'Distance_Driven_KM', 'Vehicle_Type', 'Timestamp']
             
             try:
-                records = self.mileage_worksheet.get_all_records(expected_headers=expected_headers)
+                records = _self.mileage_worksheet.get_all_records(expected_headers=expected_headers)
             except:
                 # Fallback: get all values and create records manually
-                all_values = self.mileage_worksheet.get_all_values()
+                all_values = _self.mileage_worksheet.get_all_values()
                 records = []
                 if len(all_values) > 1:
                     for row in all_values[1:]:
@@ -241,17 +295,18 @@ class SheetsManager:
         except Exception as e:
             return 0.0
     
-    def calculate_expiry_date(self, username, vehicle_type):
+    @st.cache_data(ttl=1800, show_spinner=False)  # 30 minutes cache for calculations
+    def calculate_expiry_date(_self, username, vehicle_type):
         """Calculate currency expiry date based on last 2km drive"""
         try:
             # Get all mileage records for the user and vehicle type
             expected_headers = ['Username', 'Date_of_Drive', 'Vehicle_No_MID', 'Initial_Mileage_KM', 'Final_Mileage_KM', 'Distance_Driven_KM', 'Vehicle_Type', 'Timestamp']
             
             try:
-                records = self.mileage_worksheet.get_all_records(expected_headers=expected_headers)
+                records = _self.mileage_worksheet.get_all_records(expected_headers=expected_headers)
             except:
                 # Fallback: get all values and create records manually
-                all_values = self.mileage_worksheet.get_all_values()
+                all_values = _self.mileage_worksheet.get_all_values()
                 records = []
                 if len(all_values) > 1:
                     for row in all_values[1:]:
@@ -354,16 +409,17 @@ class SheetsManager:
         except Exception as e:
             raise Exception(f"Failed to get user data: {str(e)}")
     
-    def get_all_personnel_status(self):
+    @st.cache_data(ttl=3600, show_spinner=False)  # 1 hour cache  
+    def get_all_personnel_status(_self):
         """Get currency status for all personnel across both vehicle types"""
         try:
             all_personnel = []
             
             # Get Terrex personnel
             try:
-                terrex_records = self.terrex_worksheet.get_all_records()
+                terrex_records = _self.terrex_worksheet.get_all_records()
             except:
-                terrex_values = self.terrex_worksheet.get_all_values()
+                terrex_values = _self.terrex_worksheet.get_all_values()
                 terrex_records = []
                 if len(terrex_values) > 1:
                     headers = terrex_values[0]
@@ -403,9 +459,9 @@ class SheetsManager:
             
             # Get Belrex personnel
             try:
-                belrex_records = self.belrex_worksheet.get_all_records()
+                belrex_records = _self.belrex_worksheet.get_all_records()
             except:
-                belrex_values = self.belrex_worksheet.get_all_values()
+                belrex_values = _self.belrex_worksheet.get_all_values()
                 belrex_records = []
                 if len(belrex_values) > 1:
                     headers = belrex_values[0]
@@ -448,6 +504,69 @@ class SheetsManager:
         except Exception as e:
             raise Exception(f"Failed to get all personnel status: {str(e)}")
     
+    @st.cache_data(ttl=7200, show_spinner=False)  # 2 hour cache for all names
+    def get_all_personnel_names(_self):
+        """Get all personnel names from both tracker sheets (qualified and unqualified)"""
+        all_names = {}
+        
+        try:
+            # Get all Terrex personnel (regardless of qualification status)
+            try:
+                terrex_records = _self.terrex_worksheet.get_all_records()
+            except:
+                terrex_values = _self.terrex_worksheet.get_all_values()
+                terrex_records = []
+                if len(terrex_values) > 1:
+                    headers = terrex_values[0]
+                    for row in terrex_values[1:]:
+                        record = {}
+                        for i, header in enumerate(headers):
+                            if i < len(row):
+                                record[header] = row[i]
+                        terrex_records.append(record)
+            
+            for record in terrex_records:
+                username = record.get('Username', '').strip()
+                name = record.get('Name', '').strip()
+                rank = record.get('Rank', '').strip()
+                
+                if username and name:  # Only need username and name to exist
+                    if rank:
+                        all_names[username] = f"{rank} {name}"
+                    else:
+                        all_names[username] = name
+            
+            # Get all Belrex personnel (regardless of qualification status)
+            try:
+                belrex_records = _self.belrex_worksheet.get_all_records()
+            except:
+                belrex_values = _self.belrex_worksheet.get_all_values()
+                belrex_records = []
+                if len(belrex_values) > 1:
+                    headers = belrex_values[0]
+                    for row in belrex_values[1:]:
+                        record = {}
+                        for i, header in enumerate(headers):
+                            if i < len(row):
+                                record[header] = row[i]
+                        belrex_records.append(record)
+            
+            for record in belrex_records:
+                username = record.get('Username', '').strip()
+                name = record.get('Name', '').strip()
+                rank = record.get('Rank', '').strip()
+                
+                if username and name:  # Only need username and name to exist
+                    if rank:
+                        all_names[username] = f"{rank} {name}"
+                    else:
+                        all_names[username] = name
+            
+            return all_names
+            
+        except Exception as e:
+            return {}
+    
     def is_admin_user(self, username):
         """Check if user has admin privileges"""
         # Main admin always has privileges
@@ -470,17 +589,18 @@ class SheetsManager:
             # Fallback to legacy list
             return username in ['trooper1', 'trooper2', 'commander']
     
-    def get_user_tracker_data(self, username):
+    @st.cache_data(ttl=7200, show_spinner=False)  # 2 hour cache
+    def get_user_tracker_data(_self, username):
         """Get user's tracker data from both Terrex and Belrex sheets"""
         tracker_data = {'terrex': None, 'belrex': None}
         
         try:
             # Get Terrex data
             try:
-                terrex_records = self.terrex_worksheet.get_all_records()
+                terrex_records = _self.terrex_worksheet.get_all_records()
             except:
                 # Handle duplicate headers by using raw values
-                terrex_values = self.terrex_worksheet.get_all_values()
+                terrex_values = _self.terrex_worksheet.get_all_values()
                 terrex_records = []
                 if len(terrex_values) > 1:
                     headers = terrex_values[0]
@@ -498,10 +618,10 @@ class SheetsManager:
             
             # Get Belrex data
             try:
-                belrex_records = self.belrex_worksheet.get_all_records()
+                belrex_records = _self.belrex_worksheet.get_all_records()
             except:
                 # Handle duplicate headers by using raw values
-                belrex_values = self.belrex_worksheet.get_all_values()
+                belrex_values = _self.belrex_worksheet.get_all_values()
                 belrex_records = []
                 if len(belrex_values) > 1:
                     headers = belrex_values[0]
