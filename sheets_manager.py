@@ -197,6 +197,38 @@ class SheetsManager:
         except ImportError:
             pass
     
+    def get_safety_infographics(self):
+        """Get safety infographics submissions from Google Sheets"""
+        try:
+            # Try to access safety infographics sheet
+            try:
+                safety_sheet = self.gc.open_by_key(self.sheet_id).worksheet('Safety_Infographics')
+            except:
+                # Sheet doesn't exist yet, return empty list
+                return []
+            
+            records = safety_sheet.get_all_records()
+            return records
+        except Exception as e:
+            print(f"Error getting safety infographics: {e}")
+            return []
+    
+    def get_safety_pointers(self):
+        """Get safety pointers submissions from Google Sheets"""
+        try:
+            # Try to access safety pointers sheet
+            try:
+                safety_sheet = self.gc.open_by_key(self.sheet_id).worksheet('Safety_Pointers')
+            except:
+                # Sheet doesn't exist yet, return empty list
+                return []
+            
+            records = safety_sheet.get_all_records()
+            return records
+        except Exception as e:
+            print(f"Error getting safety pointers: {e}")
+            return []
+    
     def add_mileage_log(self, log_data):
         """Add a new mileage log entry"""
         try:
@@ -249,6 +281,76 @@ class SheetsManager:
         except Exception as e:
             pass  # Fail silently for cache clearing
     
+    def get_safety_infographics(self):
+        """Get safety infographics submissions sorted by newest first"""
+        try:
+            # Try to access safety infographics sheet
+            try:
+                safety_sheet = self.spreadsheet.worksheet('Safety_Infographics')
+                # Get existing headers first
+                try:
+                    records = safety_sheet.get_all_records()
+                except:
+                    # If sheet has issues, get all values and parse manually
+                    all_values = safety_sheet.get_all_values()
+                    if len(all_values) > 1:
+                        headers = all_values[0]
+                        records = []
+                        for row in all_values[1:]:
+                            record = {}
+                            for i, header in enumerate(headers):
+                                if i < len(row):
+                                    record[header] = row[i]
+                            records.append(record)
+                    else:
+                        records = []
+                
+                # Sort by date (newest first) if records exist
+                if records:
+                    try:
+                        # Sort by Date in descending order (newest first)
+                        records = sorted(records, key=lambda x: x.get('Date', ''), reverse=True)
+                    except Exception as sort_error:
+                        print(f"Warning: Could not sort infographics by date: {sort_error}")
+                        # Return records in reverse order as fallback (newest at top)
+                        records = list(reversed(records))
+                
+                return records
+            except Exception as sheet_error:
+                print(f"Safety_Infographics sheet error: {sheet_error}")
+                return []
+            
+        except Exception as e:
+            print(f"Error getting safety infographics: {e}")
+            return []
+    
+    def get_safety_pointers(self):
+        """Get safety pointers submissions sorted by newest first"""
+        try:
+            # Try to access safety pointers sheet
+            try:
+                safety_sheet = self.spreadsheet.worksheet('Safety_Pointers')
+                records = safety_sheet.get_all_records()
+                
+                # Sort by submission date (newest first) if records exist
+                if records:
+                    try:
+                        # Sort by Submission_Date in descending order (newest first)
+                        records = sorted(records, key=lambda x: x.get('Submission_Date', ''), reverse=True)
+                    except Exception as sort_error:
+                        print(f"Warning: Could not sort safety pointers by date: {sort_error}")
+                        # Return records in reverse order as fallback (newest at top)
+                        records = list(reversed(records))
+                
+                return records
+            except Exception as sheet_error:
+                print(f"Safety_Pointers sheet not found: {sheet_error}")
+                return []
+            
+        except Exception as e:
+            print(f"Error getting safety pointers: {e}")
+            return []
+
     @st.cache_data(ttl=1800, show_spinner=False)  # 30 minutes cache for calculations  
     def calculate_3_month_distance(_self, username, vehicle_type):
         """Calculate total distance driven in the last 3 months"""
@@ -566,6 +668,14 @@ class SheetsManager:
             
         except Exception as e:
             return {}
+    
+    def get_user_full_name(self, username):
+        """Get user's full name with rank from tracker sheets"""
+        try:
+            all_names = self.get_all_personnel_names()
+            return all_names.get(username, username)
+        except Exception as e:
+            return username
     
     def is_admin_user(self, username):
         """Check if user has admin privileges"""

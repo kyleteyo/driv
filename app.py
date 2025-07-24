@@ -6,8 +6,50 @@ import time
 from auth import authenticate_user, change_password, get_user_info
 from sheets_manager import SheetsManager
 from utils import calculate_currency_status, format_status_badge
-from performance_config import get_cached_data, set_cached_data
+# Removed performance_config import to fix compatibility
 # Removed api_optimizer import to fix compatibility
+import chatbot
+
+# Set purple theme for Streamlit Cloud deployment
+st.set_page_config(
+    page_title="MSC DRIVr",
+    page_icon="./msc_logo.png",  # Use your custom MSC logo file
+    layout="wide"
+)
+
+# Add custom CSS for purple theme
+st.markdown("""
+<style>
+    .stButton > button {
+        background-color: #8A2BE2;
+        color: white;
+        border: none;
+    }
+    .stButton > button:hover {
+        background-color: #7B68EE;
+        color: white;
+    }
+    .stSelectbox > div > div {
+        background-color: #8A2BE2;
+    }
+    .stTextInput > div > div > input {
+        border-color: #8A2BE2;
+    }
+    .stDateInput > div > div > input {
+        border-color: #8A2BE2;
+    }
+    .stNumberInput > div > div > input {
+        border-color: #8A2BE2;
+    }
+    .stTab[data-baseweb="tab"] {
+        color: #8A2BE2;
+    }
+    .stTab[aria-selected="true"] {
+        color: #8A2BE2;
+        border-bottom-color: #8A2BE2;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Initialize session state with persistence
 def init_session_state():
@@ -40,10 +82,74 @@ def get_sheets_manager():
         return None
 
 def login_page():
-    """Display login page"""
-    st.title("🪖 MSC DRIVr")
-    st.subheader("Login Required")
+    """Display login page with background logo"""
     
+    # Use base64 encoded background image approach
+    import base64
+    
+    try:
+        with open("msc_logo.png", "rb") as img_file:
+            img_data = base64.b64encode(img_file.read()).decode()
+            logo_data_url = f"data:image/png;base64,{img_data}"
+    except:
+        logo_data_url = ""
+    
+    # Apply page-wide background with proper CSS
+    st.markdown(f"""
+    <style>
+    /* Target the main container for background */
+    div[data-testid="stAppViewContainer"] {{
+        background-image: url('{logo_data_url}');
+        background-repeat: no-repeat;
+        background-position: center center;
+        background-size: 400px;
+        background-attachment: fixed;
+    }}
+    
+    /* Make background semi-transparent */
+    div[data-testid="stAppViewContainer"]::before {{
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-image: url('{logo_data_url}');
+        background-repeat: no-repeat;
+        background-position: center center;
+        background-size: 400px;
+        opacity: 0.1;
+        z-index: -1;
+        pointer-events: none;
+    }}
+    
+    .login-title {{
+        text-align: center;
+        font-size: 3rem;
+        font-weight: bold;
+        color: #2C5530;
+        margin-bottom: 30px;
+        text-shadow: 2px 2px 4px rgba(255,255,255,0.9);
+        margin-top: 0;
+    }}
+    
+    /* Center the main content container consistently */
+    .main .block-container {{
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-height: 95vh;
+        padding: 2rem 1rem;
+        max-width: 500px;
+        margin: 0 auto;
+    }}
+    </style>
+    
+    <h1 class="login-title">MSC DRIVr</h1>
+    """, unsafe_allow_html=True)
+    
+    # Simple login form without extra containers
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
@@ -65,91 +171,573 @@ def login_page():
             else:
                 st.error("Invalid username or password")
 
+
 def main_app():
-    """Main application interface"""
-    # Header
-    col1, col2 = st.columns([3, 1])
-    with col1:
+    """Main application interface with sidebar navigation"""
+    # Configure sidebar
+    with st.sidebar:
         st.title("🪖 MSC DRIVr")
-    with col2:
-        if st.button("Logout"):
-            st.session_state.logged_in = False
-            st.session_state.username = ""
-            # Clear session from browser storage
-            st.components.v1.html("""
-            <script>
-            sessionStorage.removeItem('msc_drivr_logged_in');
-            sessionStorage.removeItem('msc_drivr_username');
-            </script>
-            """, height=0)
+        
+        # User welcome message
+        sheets_manager = get_sheets_manager()
+        if sheets_manager:
+            user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
+            full_name = user_qualifications.get('full_name', st.session_state.username)
+            rank = user_qualifications.get('rank', '')
+            
+            if full_name and rank:
+                st.write(f"**{rank} {full_name}**")
+            elif full_name:
+                st.write(f"**{full_name}**")
+            else:
+                st.write(f"**{st.session_state.username}**")
+        
+        st.markdown("---")
+        
+        # Navigation menu
+        if 'current_page' not in st.session_state:
+            st.session_state.current_page = "My Mileage"
+        
+        # Navigation menu - plain text style
+        st.write("**Navigation**")
+        
+        # My Mileage
+        if st.session_state.current_page == "My Mileage":
+            st.write("→ 📊 My Mileage")
+        else:
+            if st.button("📊 My Mileage", key="nav_mileage"):
+                st.session_state.current_page = "My Mileage"
+                st.rerun()
+        
+        # Safety Portal
+        if st.session_state.current_page == "Safety Portal":
+            st.write("→ 🛡️ Safety Portal")
+        else:
+            if st.button("🛡️ Safety Portal", key="nav_safety"):
+                st.session_state.current_page = "Safety Portal"
+                st.rerun()
+        
+        # MSC Safety Bot - Work in Progress (disabled for deployment)
+        # if st.session_state.current_page == "Safety Bot":
+        #     st.write("→ 🤖 MSC SAFETY BOT")
+        # else:
+        #     if st.button("🤖 MSC SAFETY BOT", key="nav_bot"):
+        #         st.session_state.current_page = "Safety Bot"
+        #         st.rerun()
+        
+        # Admin features (if applicable)
+        if sheets_manager and sheets_manager.is_admin_user(st.session_state.username):
+            st.markdown("---")
+            st.write("**Admin Features**")
+            
+            # Team Overview
+            if st.session_state.current_page == "Team Overview":
+                st.write("→ 👥 Team Overview")
+            else:
+                if st.button("👥 Team Overview", key="nav_team"):
+                    st.session_state.current_page = "Team Overview"
+                    st.rerun()
+            
+            # Account Management
+            if st.session_state.current_page == "Account Management":
+                st.write("→ 👤 Account Management")
+            else:
+                if st.button("👤 Account Management", key="nav_accounts"):
+                    st.session_state.current_page = "Account Management"
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # Change Password
+        if st.session_state.current_page == "Change Password":
+            st.write("→ 🔐 Change Password")
+        else:
+            if st.button("🔐 Change Password", key="nav_password"):
+                st.session_state.current_page = "Change Password"
+                st.rerun()
+        
+        # Logout button at bottom
+        if st.button("🚪 Logout", key="logout_btn"):
+            # Clear session state
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
             st.rerun()
     
     # Initialize sheets manager with caching
     sheets_manager = get_sheets_manager()
     if sheets_manager is None:
-        st.info("Please ensure Google Sheets API credentials are properly configured.")
+        st.error("Please ensure Google Sheets API credentials are properly configured.")
         return
     
-    # Get user info and display welcome message
-    user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
-    full_name = user_qualifications.get('full_name', st.session_state.username)
-    rank = user_qualifications.get('rank', '')
-    
-    # Check if user is main admin for special interface
-    is_main_admin = st.session_state.username == 'admin'
-    
-    if is_main_admin:
-        st.markdown("## Admin Dashboard")
+    # Main content area - display content based on current page
+    if st.session_state.current_page == "My Mileage":
+        my_mileage_page(sheets_manager)
+    elif st.session_state.current_page == "Safety Portal":
+        safety_portal_page(sheets_manager)
+    # elif st.session_state.current_page == "Safety Bot":
+    #     safety_bot_page(sheets_manager)  # Work in progress - disabled for deployment
+    elif st.session_state.current_page == "Team Overview":
+        admin_team_dashboard(sheets_manager)
+    elif st.session_state.current_page == "Account Management":
+        account_management_tab(sheets_manager)
+    elif st.session_state.current_page == "Change Password":
+        change_password_tab()
     else:
-        if full_name and rank:
-            st.write(f"Welcome, **{rank} {full_name}**")
-        elif full_name:
-            st.write(f"Welcome, **{full_name}**")
-        else:
-            st.write(f"Welcome, **{st.session_state.username}**")
+        # Default to My Mileage if no valid page selected
+        my_mileage_page(sheets_manager)
+
+def my_mileage_page(sheets_manager):
+    """Mileage tracking page with horizontal sub-menu tabs"""
+    st.title("📊 My Mileage")
     
-    if is_main_admin:
-        # Main admin interface - focused on management with persistent tab state
+    # Create horizontal tabs for Dashboard and Log Mileage
+    tab1, tab2 = st.tabs(["📊 Dashboard", "📝 Log Mileage"])
+    
+    with tab1:
+        dashboard_tab(sheets_manager)
+    
+    with tab2:
+        log_mileage_tab(sheets_manager)
+
+def safety_portal_page(sheets_manager):
+    """Safety Portal page with horizontal tabs"""
+    st.title("🛡️ Safety Portal")
+    
+    # Create horizontal tabs for the three safety sections
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "📸 Submit Infographic", "📝 Submit Safety Pointer"])
+    
+    with tab1:
+        safety_dashboard_tab(sheets_manager)
+    
+    with tab2:
+        safety_infographic_tab(sheets_manager)
+    
+    with tab3:
+        safety_pointer_tab(sheets_manager)
+
+def safety_bot_page(sheets_manager):
+    """MSC Safety Bot page"""
+    st.title("🤖 MSC SAFETY BOT")
+    st.markdown("---")
+    
+    # Render the chatbot interface
+    chatbot.render_chatbot_interface(sheets_manager)
+
+def safety_dashboard_tab(sheets_manager):
+    """Safety Portal Dashboard - displays submitted content"""
+    
+    # Create selectbox for view selection
+    view_option = st.selectbox(
+        "Select View:",
+        ["📸 Infographics", "📝 Safety Pointers"],
+        index=0,
+        label_visibility="collapsed"
+    )
+    
+    st.markdown("---")
+    
+    # Display content based on selection
+    if view_option == "📸 Infographics":
+        display_safety_infographics(sheets_manager)
+    elif view_option == "📝 Safety Pointers":
+        display_safety_pointers(sheets_manager)
+
+def display_safety_infographics(sheets_manager):
+    """Display safety infographics from Google Sheets"""
+    try:
+        # Try to get infographics data from Google Sheets
+        infographics_data = sheets_manager.get_safety_infographics() if hasattr(sheets_manager, 'get_safety_infographics') else []
         
-        # Initialize active tab if not set
-        if 'admin_active_tab' not in st.session_state:
-            st.session_state.admin_active_tab = 0
+        # Filter out entries without valid images first
+        valid_infographics = []
+        for infographic in infographics_data:
+            image_url = infographic.get('File_Name', '')
+            if image_url and image_url not in ['METADATA_ONLY', 'UPLOAD_FAILED', 'R2_NOT_CONFIGURED', '', 'N/A']:
+                valid_infographics.append(infographic)
         
-        # Create tab buttons for better state control
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("👥 Team Overview", key="team_tab", use_container_width=True, 
-                        type="primary" if st.session_state.admin_active_tab == 0 else "secondary"):
-                st.session_state.admin_active_tab = 0
-                st.rerun()
-        with col2:
-            if st.button("👤 Account Management", key="account_tab", use_container_width=True,
-                        type="primary" if st.session_state.admin_active_tab == 1 else "secondary"):
-                st.session_state.admin_active_tab = 1
-                st.rerun()
-        
-        st.markdown("---")
-        
-        # Show content based on active tab
-        if st.session_state.admin_active_tab == 0:
-            admin_team_dashboard(sheets_manager)
+        if valid_infographics and len(valid_infographics) > 0:
+            st.markdown("#### 📸 Safety Infographics")
+            
+            # Display infographics in card format
+            for i, infographic in enumerate(valid_infographics[:6]):  # Show latest 6 valid ones
+                with st.container():
+                    # Fix column mapping based on actual data structure
+                    image_url = infographic.get('File_Name', '')  # URL is in File_Name field
+                    submitter_username = infographic.get('Title', 'Unknown')  # Submitter username is in Title field
+                    date = infographic.get('Image_URL', 'N/A')  # Date is in Image_URL field
+                    
+                    # Get full name and rank for the submitter
+                    try:
+                        submitter_info = sheets_manager.get_user_full_name(submitter_username)
+                        submitter_display = submitter_info if submitter_info != submitter_username else submitter_username
+                    except:
+                        submitter_display = submitter_username
+                    
+                    # Format date to show only date part
+                    try:
+                        if len(date.split()) > 1:
+                            date_only = date.split()[0]  # Get just the date part
+                        else:
+                            date_only = date
+                    except:
+                        date_only = date
+                    
+                    # Show image with submitter info below - skip entries without valid data
+                    if image_url and image_url not in ['METADATA_ONLY', 'UPLOAD_FAILED', 'R2_NOT_CONFIGURED', '', 'N/A']:
+                        # Only show entries with valid image URLs
+                        try:
+                            st.image(image_url, use_container_width=True)
+                            st.markdown(f"""
+                            <div style="text-align: center; margin-top: 10px;">
+                                <p style="margin: 2px 0; color: #666; font-size: 0.9em;"><strong>Uploaded by:</strong> {submitter_display}</p>
+                                <p style="margin: 2px 0; color: #666; font-size: 0.9em;">{date_only}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        except Exception as img_error:
+                            # Skip invalid entries silently
+                            continue
+                    else:
+                        # Skip entries without valid images (don't show "Metadata only")
+                        continue
+                    
+                    st.markdown("---")
         else:
-            account_management_tab(sheets_manager)
-    else:
-        # Regular user interface
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "📝 Log Mileage", "🎯 Currency Status", "🔐 Change Password"])
+            st.info("📸 No safety infographics submitted yet. Be the first to share!")
+            st.markdown("*Use the 'Submit Infographic' tab to upload safety-related images.*")
+            
+    except Exception as e:
+        st.warning(f"⚠️ Unable to load infographics data: {str(e)}")
+        st.markdown("**Debug info:** Check if Safety_Infographics worksheet exists in Google Sheets")
         
-        with tab1:
-            dashboard_tab(sheets_manager)
+        # Debug: Show what data we have
+        try:
+            debug_data = sheets_manager.get_safety_infographics()
+            if debug_data:
+                st.write("**Debug - Found data:**")
+                for item in debug_data[:2]:  # Show first 2 items
+                    st.json(item)
+        except:
+            st.write("**Debug:** Could not retrieve any data")
+
+def display_safety_pointers(sheets_manager):
+    """Display safety pointers from Google Sheets"""
+    try:
+        # Try to get safety pointers data from Google Sheets
+        safety_pointers_data = sheets_manager.get_safety_pointers()
         
-        with tab2:
-            log_mileage_tab(sheets_manager)
+        if safety_pointers_data and len(safety_pointers_data) > 0:
+            st.markdown("#### 📝 Safety Observations & Recommendations")
+            
+            # Display safety pointers in card format
+            for i, pointer in enumerate(safety_pointers_data[:8]):  # Show latest 8
+                with st.container():
+                    # Fix column mapping based on actual data structure from debug
+                    submitter_username = pointer.get('Observation_Date', 'Unknown')  # Username in Observation_Date field
+                    obs_date = pointer.get('Observation', 'N/A')  # Date in Observation field
+                    observation = pointer.get('Category', 'N/A')  # Observation text in Category field  
+                    reflection = pointer.get('Reflection', 'N/A')  # Reflection is correct
+                    recommendation = pointer.get('Recommendation', 'N/A')  # Recommendation is correct
+                    category = pointer.get('Submitter', 'Safety Observation')  # Category in Submitter field
+                    
+                    # Set category color based on category
+                    category_color = {
+                        'Near Miss': '#f39c12',
+                        'Accident': '#e74c3c', 
+                        'Potential Accident': '#e67e22'
+                    }.get(category, '#3498db')
+                    
+                    # Get full name and rank for the submitter
+                    try:
+                        submitter_info = sheets_manager.get_user_full_name(submitter_username)
+                        if submitter_info and submitter_info != submitter_username:
+                            submitter_display = submitter_info  # This includes rank and name like "CPT JOHN DOE"
+                        else:
+                            # Fallback to username if name lookup fails
+                            submitter_display = f"User: {submitter_username}"
+                    except Exception as e:
+                        submitter_display = f"User: {submitter_username}"
+                    
+                    # Format date to show only date part
+                    try:
+                        if len(obs_date.split()) > 1:
+                            date_only = obs_date.split()[0]  # Get just the date part
+                        else:
+                            date_only = obs_date
+                    except:
+                        date_only = obs_date
+                    
+                    st.markdown(f"""
+                    <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0; background-color: #f8f9fa; border-left: 4px solid {category_color};">
+                        <h4 style="color: #2C5530; margin: 0 0 12px 0;">📝 {category}</h4>
+                        <div style="margin-bottom: 8px;">
+                            <p style="margin: 3px 0; color: #333;"><strong>Observation:</strong> {observation}</p>
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <p style="margin: 3px 0; color: #333;"><strong>Reflection:</strong> {reflection}</p>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <p style="margin: 3px 0; color: #333;"><strong>Recommendation:</strong> {recommendation}</p>
+                        </div>
+                        <p style="margin: 5px 0; color: #666; font-size: 0.9em;"><strong>Submitted by:</strong> {submitter_display}</p>
+                        <p style="margin: 5px 0; color: #666; font-size: 0.9em;">{date_only}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+        else:
+            st.info("📝 No safety pointers submitted yet. Help improve our safety culture!")
+            st.markdown("*Use the 'Submit Safety Pointer' tab to share observations and recommendations.*")
+            
+    except Exception as e:
+        st.error(f"⚠️ Error loading safety pointers: {str(e)}")
+        st.markdown("**Debug info:** Check if Safety_Pointers worksheet exists in Google Sheets")
         
-        with tab3:
-            currency_status_tab(sheets_manager)
+        # Try to show debug info
+        try:
+            debug_data = sheets_manager.get_safety_pointers()
+            if debug_data:
+                st.write("**Debug - Found safety pointers data:**")
+                for item in debug_data[:2]:
+                    st.json(item)
+            else:
+                st.write("**Debug:** No safety pointers data found")
+        except Exception as debug_error:
+            st.write(f"**Debug error:** {str(debug_error)}")
+
+def safety_infographic_tab(sheets_manager):
+    """Safety infographic submission tab with Cloudflare R2 storage"""
+    
+    st.markdown("Upload safety-related images and infographics to share with the team.")
+    
+    # Initialize R2 manager
+    try:
+        from cloudflare_r2 import CloudflareR2Manager, get_r2_setup_instructions
+        r2_manager = CloudflareR2Manager()
         
-        with tab4:
-            change_password_tab()
+        # R2 configured but no status display needed
+    except ImportError:
+        r2_manager = None
+        st.info("📁 Cloudflare R2 integration available - install boto3 to enable cloud storage")
+    
+    with st.form("infographic_form"):
+        # Image upload
+        uploaded_file = st.file_uploader(
+            "Upload Safety Infographic:",
+            type=['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            help="Supported formats: JPG, JPEG, PNG, GIF, WebP (max 10MB)"
+        )
+        
+        # Preview uploaded image
+        if uploaded_file:
+            st.markdown("**Preview:**")
+            st.image(uploaded_file, caption=f"{uploaded_file.name}", use_container_width=True)
+        
+        submit_button = st.form_submit_button("📤 Submit Safety Infographic", type="primary")
+        
+        if submit_button:
+            if not uploaded_file:
+                st.error("Please upload an image file.")
+            else:
+                try:
+                    # Prepare submission data
+                    submission_data = {
+                        'submitter': st.session_state.username,
+                        'title': f"Safety Infographic by {st.session_state.username}",
+                        'date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'original_filename': uploaded_file.name,
+                        'file_size': uploaded_file.size
+                    }
+                    
+                    # Try to upload to R2 if configured
+                    image_url = None
+                    if r2_manager and r2_manager.is_configured():
+                        with st.spinner("📤 Uploading to Cloudflare R2..."):
+                            upload_result = r2_manager.upload_infographic(
+                                uploaded_file, 
+                                st.session_state.username,
+                                None  # No title needed
+                            )
+                        
+                        if upload_result['success']:
+                            image_url = upload_result['url']
+                            submission_data['image_url'] = image_url
+                            submission_data['optimized_size'] = upload_result['size']
+                            submission_data['dimensions'] = upload_result['dimensions']
+                            st.success(f"✅ {upload_result['message']}")
+                            st.info(f"🔗 Public URL: {image_url}")
+                            
+                            # Analyze image with BLIP model
+                            with st.spinner("🤖 Analyzing image content with AI..."):
+                                from chatbot import MSCSafetyBot
+                                bot = MSCSafetyBot()
+                                image_analysis = bot.analyze_image_with_blip(image_url)
+                                
+                                if image_analysis and not image_analysis.startswith(("No ", "Failed", "BLIP", "Request", "Network", "Analysis")):
+                                    st.success(f"🔍 AI Analysis: {image_analysis}")
+                                    submission_data['ai_analysis'] = image_analysis
+                                else:
+                                    st.warning(f"⚠️ AI Analysis: {image_analysis}")
+                                    submission_data['ai_analysis'] = image_analysis or "Analysis unavailable"
+                        else:
+                            st.warning(f"⚠️ R2 upload failed: {upload_result['error']}")
+                            st.info("📝 Continuing with metadata-only submission...")
+                            submission_data['image_url'] = "UPLOAD_FAILED"
+                            submission_data['ai_analysis'] = "Upload failed - cannot analyze image"
+                    else:
+                        submission_data['image_url'] = "METADATA_ONLY"
+                        submission_data['ai_analysis'] = "R2 storage not configured - cannot analyze image"
+                        st.info("📝 Saving submission metadata to Google Sheets (R2 storage not configured)")
+                    
+                    # Save to Google Sheets
+                    try:
+                        # Try to get or create Safety_Infographics worksheet
+                        try:
+                            safety_sheet = sheets_manager.spreadsheet.worksheet('Safety_Infographics')
+                        except:
+                            # Create sheet if it doesn't exist
+                            safety_sheet = sheets_manager.spreadsheet.add_worksheet(title='Safety_Infographics', rows=1000, cols=11)
+                            
+                            # Add headers
+                            headers = ['Submitter', 'Title', 'Date', 'Original_Filename', 'File_Size', 'Image_URL', 'Optimized_Size', 'Dimensions', 'Tags', 'AI_Analysis']
+                            safety_sheet.append_row(headers)
+                        
+                        # Append the submission data
+                        row_data = [
+                            submission_data['submitter'],
+                            submission_data['title'],
+                            submission_data['date'],
+                            submission_data['original_filename'],
+                            str(submission_data['file_size']),
+                            submission_data.get('image_url', ''),
+                            str(submission_data.get('optimized_size', '')),
+                            str(submission_data.get('dimensions', '')),
+                            '',  # Tags placeholder
+                            submission_data.get('ai_analysis', '')  # AI analysis from BLIP
+                        ]
+                        safety_sheet.append_row(row_data)
+                        
+                        st.success("✅ Safety infographic submitted successfully!")
+                        st.balloons()
+                        
+                        # Show submission summary
+                        with st.expander("📋 Submission Details"):
+                            st.write(f"**Title:** {submission_data['title']}")
+                            st.write(f"**Submitted by:** {submission_data['submitter']}")
+                            st.write(f"**Date:** {submission_data['date']}")
+                            if image_url and image_url not in ["METADATA_ONLY", "UPLOAD_FAILED"]:
+                                st.write(f"**Storage:** Cloudflare R2")
+                                st.write(f"**URL:** {image_url}")
+                                if submission_data.get('ai_analysis'):
+                                    st.write(f"**AI Analysis:** {submission_data['ai_analysis']}")
+                            else:
+                                st.write(f"**Storage:** Google Sheets metadata only")
+                                st.info("💡 To enable cloud image storage, set up Cloudflare R2 credentials")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error saving to Google Sheets: {str(e)}")
+                        st.info("The image was uploaded to R2 but metadata couldn't be saved to sheets.")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing submission: {str(e)}")
+
+def safety_pointer_tab(sheets_manager):
+    """Safety pointer submission tab"""
+    
+    st.markdown("Submit safety observations and recommendations to improve workplace safety.")
+    
+    with st.form("safety_pointer_form"):
+        # Date of Observation
+        observation_date = st.date_input(
+            "Date of Observation:",
+            value=datetime.now().date(),
+            help="When did you observe this safety issue or situation?"
+        )
+        
+        # Observation
+        observation = st.text_area(
+            "Observation:",
+            placeholder="Describe what you observed (situation, behavior, conditions, etc.)",
+            height=100
+        )
+        
+        # Reflection
+        reflection = st.text_area(
+            "Reflection:",
+            placeholder="What are your thoughts on this observation? Why is it significant?",
+            height=100
+        )
+        
+        # Recommendation
+        recommendation = st.text_area(
+            "Recommendation:",
+            placeholder="What actions do you recommend to address this observation?",
+            height=100
+        )
+        
+        # Category dropdown
+        category = st.selectbox(
+            "Category:",
+            ["Near Miss", "Accident", "Potential Accident"],
+            help="Select the most appropriate category for this observation"
+        )
+        
+        submit_button = st.form_submit_button("Submit Safety Pointer", type="primary")
+        
+        if submit_button:
+            if not observation.strip():
+                st.error("Please enter your observation.")
+            elif not reflection.strip():
+                st.error("Please enter your reflection.")
+            elif not recommendation.strip():
+                st.error("Please enter your recommendation.")
+            else:
+                try:
+                    # Process the submission
+                    submission_data = {
+                        'submitter': st.session_state.username,
+                        'observation_date': observation_date.strftime('%Y-%m-%d'),
+                        'observation': observation.strip(),
+                        'reflection': reflection.strip(),
+                        'recommendation': recommendation.strip(),
+                        'category': category,
+                        'submission_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    
+                    # Save to Google Sheets
+                    try:
+                        # Try to get or create Safety_Pointers worksheet
+                        try:
+                            safety_pointers_sheet = sheets_manager.spreadsheet.worksheet('Safety_Pointers')
+                        except:
+                            # Create sheet if it doesn't exist
+                            safety_pointers_sheet = sheets_manager.spreadsheet.add_worksheet(title='Safety_Pointers', rows=1000, cols=8)
+                            
+                            # Add headers
+                            headers = ['Submitter', 'Observation_Date', 'Observation', 'Reflection', 'Recommendation', 'Category', 'Submission_Date']
+                            safety_pointers_sheet.append_row(headers)
+                        
+                        # Append the submission data - ensure correct order matching headers
+                        row_data = [
+                            submission_data['submitter'],          # Submitter
+                            submission_data['observation_date'],   # Observation_Date  
+                            submission_data['observation'],       # Observation
+                            submission_data['reflection'],        # Reflection
+                            submission_data['recommendation'],    # Recommendation
+                            submission_data['category'],          # Category
+                            submission_data['submission_date']    # Submission_Date
+                        ]
+                        
+                        safety_pointers_sheet.append_row(row_data)
+                        
+                        st.success("✅ Safety pointer submitted successfully!")
+                        st.info("📝 Your safety observation has been logged and will help improve workplace safety.")
+                        
+                        # Clear the form by rerunning (user will see success message)
+                        
+                    except Exception as sheets_error:
+                        st.error(f"❌ Error saving to Google Sheets: {str(sheets_error)}")
+                        st.info("📝 Your submission was processed but may not have been saved. Please try again.")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error submitting safety pointer: {str(e)}")
 
 def dashboard_tab(sheets_manager):
     """Dashboard overview"""
@@ -471,6 +1059,9 @@ def admin_team_dashboard(sheets_manager):
                 display_df = platoon_personnel[display_cols].copy()
                 display_df.columns = ['Rank', 'Name', 'Vehicle', 'Status', '3-Month KM', 'Days to Expiry']
                 
+                # Ensure 'Days to Expiry' column is treated as string to avoid Arrow serialization errors
+                display_df['Days to Expiry'] = display_df['Days to Expiry'].astype(str)
+                
                 st.dataframe(display_df, use_container_width=True, height=200)
         
         # Quick Personnel Search & Filter
@@ -508,6 +1099,9 @@ def admin_team_dashboard(sheets_manager):
             display_cols = ['rank', 'name', 'platoon', 'vehicle_type', 'currency_status', 'distance_3_months', 'days_to_expiry']
             table_df = filtered_df[display_cols].copy()
             table_df.columns = ['Rank', 'Name', 'Platoon', 'Vehicle', 'Status', '3-Month KM', 'Days to Expiry']
+            
+            # Ensure 'Days to Expiry' column is treated as string to avoid Arrow serialization errors
+            table_df['Days to Expiry'] = table_df['Days to Expiry'].astype(str)
             
             st.dataframe(table_df, use_container_width=True, height=400)
         else:
@@ -576,7 +1170,9 @@ def log_mileage_tab(sheets_manager):
                 min_value=0.0,
                 max_value=999999.0,
                 step=0.1,
-                format="%.1f"
+                format="%.1f",
+                value=None,
+                placeholder="Enter starting mileage"
             )
         
         with col4:
@@ -585,17 +1181,23 @@ def log_mileage_tab(sheets_manager):
                 min_value=0.0,
                 max_value=999999.0,
                 step=0.1,
-                format="%.1f"
+                format="%.1f",
+                value=None,
+                placeholder="Enter ending mileage"
             )
         
         # Calculate distance automatically
-        if final_mileage > initial_mileage:
-            distance_driven = final_mileage - initial_mileage
-            st.info(f"Distance Driven: {distance_driven:.1f} KM")
+        if initial_mileage is not None and final_mileage is not None:
+            if final_mileage > initial_mileage:
+                distance_driven = final_mileage - initial_mileage
+                st.info(f"Distance Driven: {distance_driven:.1f} KM")
+            else:
+                distance_driven = 0.0
+                st.error("Final mileage must be greater than initial mileage")
         else:
             distance_driven = 0.0
-            if final_mileage != 0.0 and initial_mileage != 0.0:
-                st.error("Final mileage must be greater than initial mileage")
+            if initial_mileage is not None and final_mileage is not None:
+                st.info("Enter both initial and final mileage to calculate distance")
         
         submit_button = st.form_submit_button("Log Mileage", type="primary")
         
@@ -603,6 +1205,14 @@ def log_mileage_tab(sheets_manager):
             # Validation
             if not vehicle_no.strip():
                 st.error("Please enter a vehicle number (MID)")
+                return
+            
+            if initial_mileage is None:
+                st.error("Please enter initial mileage")
+                return
+                
+            if final_mileage is None:
+                st.error("Please enter final mileage")
                 return
             
             if final_mileage <= initial_mileage:

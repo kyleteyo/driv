@@ -120,8 +120,41 @@ The application follows a modular architecture with clear separation of concerns
    - Protected deletion with safeguards for built-in accounts
    - Flexible credential system supporting legacy and new formats
    - New accounts added via Google Sheets tracker data
+10. **AI Safety Chatbot**: Intelligent assistant for safety information retrieval
+   - Real-time search through submitted safety pointers and infographics
+   - Vehicle-specific query support (Terrex/Belrex operations)
+   - Category-based filtering (Near Miss, Accident, Potential Accident)
+   - Chat history and data refresh functionality
+   - Uses authentic Google Sheets data as knowledge base
 
 ## Recent Changes (January 2025)
+
+🚧 **AI Safety Chatbot (Work in Progress - Disabled for Deployment):**
+- MSC Safety Bot temporarily disabled for stable deployment
+- Features developed: AI-powered responses using Hugging Face models, BLIP image analysis integration
+- Will be re-enabled after deployment testing and optimization
+- Code preserved for future activation
+
+✅ **Major UI restructure with Safety Portal Dashboard and Cloudflare R2 integration (1/22/2025):**
+- Replaced tab-based navigation with clean left sidebar using simple text-style navigation
+- Removed "Currency Status" page and integrated into main mileage page
+- Added logout button at bottom of sidebar as requested
+- Current page highlighted with → arrow indicator, other pages as clickable buttons
+- Consolidated mileage tracking and currency status into single "My Mileage" page with horizontal tabs
+- Created comprehensive Safety Portal with 3 horizontal tabs: Dashboard, Submit Infographic, Submit Safety Pointer
+- NEW: Safety Portal Dashboard displays real-time safety submissions in military-styled card layout
+- Dashboard shows live metrics for total submissions and recent safety content from Google Sheets
+- IMPLEMENTED: Cloudflare R2 cloud storage integration for safety infographics with 10GB free tier
+- Automatic image optimization: resizing, compression, and format conversion for efficient storage
+- Real-time storage usage tracking and free tier monitoring
+- Enhanced infographic submission with title field and image preview functionality
+- Automatic Google Sheets logging with image URLs, metadata, and submission details
+- Graceful fallback when R2 not configured (metadata-only mode)
+- Enhanced safety pointer form with structured fields: Date of Observation, Observation, Reflection, Recommendation, and Near Miss/Accident/Potential Accident dropdown
+- Color-coded safety pointer cards based on category (Near Miss/Accident/Potential Accident)
+- Google Sheets integration for Safety_Infographics and Safety_Pointers worksheets
+- Maintained admin features (Team Overview, Account Management) in sidebar for qualified users
+- Mobile-responsive design with clean, military-inspired interface
 
 ✅ **Revamped personal dashboard with currency-first design (1/17/2025):**
 - Currency status now displayed prominently as the most important information
