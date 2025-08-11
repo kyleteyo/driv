@@ -1,0 +1,65 @@
+DEBUG - Exercise data being processed:
+
+Exercise 1: Sumo Deadlift - Weight: 30.0kg, Reps: 12
+
+Exercise 2: Bench Press - Weight: 30.0kg, Reps: 13
+
+Exercise 3: Back Squat - Weight: 30.0kg, Reps: 14
+
+Exercise 4: Pull Up - Weight: 30.0kg, Reps: 15
+
+Exercise 5: Step Up (optional) - Weight: 30.0kg, Reps: 16
+
+Debug - Processing 5 exercises
+
+Debug - Available headers: ['Date', 'Soldier Name / ID', 'Session Number', 'Exercise Name', 'Prescribed Sets', 'Prescribed Reps', 'RM Target', 'Notes', 'Weight Lifted', 'Actual Reps Completed']
+
+Debug - Processing exercise: {'exercise': {'Session': 3, 'Exercise': 'Sumo Deadlift', 'Sets': 3, 'Reps': '12-15', 'Notes': ''}, 'weight': 30.0, 'actual_reps': '12'}
+
+Debug - Exercise name: 'Sumo Deadlift'
+
+Debug - Looking for columns: 'Sumo Deadlift (kg)' and 'Sumo Deadlift (reps)'
+
+Debug - Weight column 'Sumo Deadlift (kg)' not found in headers
+
+Debug - Reps column 'Sumo Deadlift (reps)' not found in headers
+
+Debug - Processing exercise: {'exercise': {'Session': 3, 'Exercise': 'Bench Press', 'Sets': 3, 'Reps': '12-15', 'Notes': ''}, 'weight': 30.0, 'actual_reps': '13'}
+
+Debug - Exercise name: 'Bench Press'
+
+Debug - Looking for columns: 'Bench Press (kg)' and 'Bench Press (reps)'
+
+Debug - Weight column 'Bench Press (kg)' not found in headers
+
+Debug - Reps column 'Bench Press (reps)' not found in headers
+
+Debug - Processing exercise: {'exercise': {'Session': 3, 'Exercise': 'Back Squat', 'Sets': 3, 'Reps': '12-15', 'Notes': ''}, 'weight': 30.0, 'actual_reps': '14'}
+
+Debug - Exercise name: 'Back Squat'
+
+Debug - Looking for columns: 'Back Squat (kg)' and 'Back Squat (reps)'
+
+Debug - Weight column 'Back Squat (kg)' not found in headers
+
+Debug - Reps column 'Back Squat (reps)' not found in headers
+
+Debug - Processing exercise: {'exercise': {'Session': 3, 'Exercise': 'Pull Up', 'Sets': 2, 'Reps': '6–10', 'Notes': '6s eccentric'}, 'weight': 30.0, 'actual_reps': '15'}
+
+Debug - Exercise name: 'Pull Up'
+
+Debug - Looking for columns: 'Pull Up (kg)' and 'Pull Up (reps)'
+
+Debug - Weight column 'Pull Up (kg)' not found in headers
+
+Debug - Reps column 'Pull Up (reps)' not found in headers
+
+Debug - Processing exercise: {'exercise': {'Session': 3, 'Exercise': 'Step Up (optional)', 'Sets': 3, 'Reps': '12/leg', 'Notes': ''}, 'weight': 30.0, 'actual_reps': '16'}
+
+Debug - Exercise name: 'Step Up (optional)'
+
+Debug - Looking for columns: 'Step Up (optional) (kg)' and 'Step Up (optional) (reps)'
+
+Debug - Weight column 'Step Up (optional) (kg)' not found in headers
+
+Debug - Reps column 'Step Up (optional) (reps)' not found in headers

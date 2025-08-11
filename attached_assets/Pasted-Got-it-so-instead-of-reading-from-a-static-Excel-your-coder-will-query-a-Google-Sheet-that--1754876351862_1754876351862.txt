@@ -1,0 +1,48 @@
+Got it ✅ — so instead of reading from a static Excel, your coder will **query a Google Sheet** that’s already linked to the app backend.
+
+Here’s the **revised prompt** you can give them:
+
+---
+
+**Prompt for App Coder (Google Sheets version)**
+
+> You are building a mobile/web app for tracking SAF Infantry Strength & Power (Free Weights) training.
+> The master workout data is stored in a **Google Sheet** (already connected to the app).
+> The Google Sheet contains these columns:
+>
+> * **Session** (integer 1–16) — S\&P session number
+> * **Exercise** (string) — name of the exercise
+> * **Sets** (integer or blank) — prescribed sets
+> * **Reps** (string or blank) — prescribed reps (may be a range or “/leg”)
+> * **RM** (string or blank) — repetition maximum target (e.g., “8–11 RM”)
+> * **Notes** (string) — additional instructions (e.g., “6s eccentric”)
+>
+> **App Behaviour**:
+>
+> 1. The app shows a **dropdown** for the user to select the S\&P session number (1–16).
+> 2. When a session is selected, the app queries the Google Sheet and **filters all rows where `Session` = selected number**.
+> 3. Display the matching exercises in a table with columns:
+>
+>    * Exercise name
+>    * Sets
+>    * Reps
+>    * RM
+>    * Notes
+> 4. Next to each exercise, have input fields for the user to log:
+>
+>    * **Weight lifted** (kg or “Bodyweight”)
+>    * **Actual reps completed**
+> 5. When the user submits, store the logged data in another connected Google Sheet (or the database) for progress tracking.
+> 6. Allow the user to view past sessions and see trends in weight lifted over time.
+>
+> **Optimisations**:
+>
+> * When loading a session, **auto-fill weight fields with the last recorded value** for that exercise.
+> * Support **batch entry mode** to log all exercises for the session on one page.
+> * Keep Google Sheets structure consistent — new sessions or changes should not require code updates.
+
+---
+
+If you want, I can also **add a column in your Google Sheet for `Exercise Code`** (e.g., `SD` for Sumo Deadlift) so soldiers can quickly enter logs later from their notebooks instead of typing full names. That would make manual transfer super fast.
+
+Do you want me to make that updated sheet format?

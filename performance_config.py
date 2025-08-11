@@ -22,18 +22,19 @@ def configure_app_performance():
         )
         st.session_state.app_configured = True
 
-# Performance optimization settings - Extended aggressive caching
-CACHE_TTL = 3600  # 1 hour cache timeout (increased from 30 min)
+# Performance optimization settings - Optimized for speed
+CACHE_TTL = 1800  # 30 minutes cache timeout (balanced)
 ENABLE_CACHING = True
-BATCH_SIZE = 100  # Increased batch size
-MAX_CACHE_SIZE = 100  # Increased cache size
+BATCH_SIZE = 200  # Increased batch size for better performance
+MAX_CACHE_SIZE = 200  # Increased cache size for more data
+LAZY_LOADING = True  # Enable lazy loading for heavy operations
 
-# Performance optimizations - Extended cache times
+# Performance optimizations - Balanced cache times for speed vs freshness
 CACHE_CONFIG = {
-    'user_data_ttl': 3600,  # 1 hour (was 30 min)
-    'qualifications_ttl': 7200,  # 2 hours (was 1 hour) 
-    'personnel_status_ttl': 3600,  # 1 hour (was 30 min)
-    'tracker_data_ttl': 7200  # 2 hours (was 1 hour)
+    'user_data_ttl': 900,  # 15 minutes - balanced updates
+    'qualifications_ttl': 900,  # 15 minutes - balanced updates  
+    'personnel_status_ttl': 600,  # 10 minutes - moderate for team overview
+    'tracker_data_ttl': 1800  # 30 minutes - longer for stable data
 }
 
 # UI optimizations

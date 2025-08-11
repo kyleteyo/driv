@@ -6,47 +6,56 @@ import time
 from auth import authenticate_user, change_password, get_user_info
 from sheets_manager import SheetsManager
 from utils import calculate_currency_status, format_status_badge
-# Removed performance_config import to fix compatibility
-# Removed api_optimizer import to fix compatibility
-import chatbot
+from optimization import session_cache, clear_session_cache, lazy_load_data, optimize_dataframe
 
-# Set purple theme for Streamlit Cloud deployment
-st.set_page_config(
-    page_title="MSC DRIVr",
-    page_icon="./msc_logo.png",  # Use your custom MSC logo file
-    layout="wide"
-)
+# Performance optimization - Streamlit configuration
+if "app_configured" not in st.session_state:
+    st.set_page_config(
+        page_title="MSC DRIVr",
+        page_icon="./msc_logo.png",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    # Disable Streamlit metrics collection for faster startup
+    st._config.set_option('browser.gatherUsageStats', False)
+    st.session_state.app_configured = True
 
-# Add custom CSS for purple theme
+
+
+# Add custom CSS for permanent sidebar on laptops
 st.markdown("""
 <style>
-    .stButton > button {
-        background-color: #8A2BE2;
-        color: white;
-        border: none;
-    }
-    .stButton > button:hover {
-        background-color: #7B68EE;
-        color: white;
-    }
-    .stSelectbox > div > div {
-        background-color: #8A2BE2;
-    }
-    .stTextInput > div > div > input {
-        border-color: #8A2BE2;
-    }
-    .stDateInput > div > div > input {
-        border-color: #8A2BE2;
-    }
-    .stNumberInput > div > div > input {
-        border-color: #8A2BE2;
-    }
-    .stTab[data-baseweb="tab"] {
-        color: #8A2BE2;
-    }
-    .stTab[aria-selected="true"] {
-        color: #8A2BE2;
-        border-bottom-color: #8A2BE2;
+    /* Force sidebar to stay open on laptops and desktops */
+    @media (min-width: 768px) {
+        /* Sidebar container */
+        section[data-testid="stSidebar"] {
+            width: 320px !important;
+            min-width: 320px !important;
+            transform: translateX(0px) !important;
+            visibility: visible !important;
+        }
+        
+        /* Sidebar content */
+        .css-1d391kg, .css-6qob1r, .st-emotion-cache-6qob1r {
+            width: 320px !important;
+            min-width: 320px !important;
+        }
+        
+        /* Main content area adjustment */
+        .main .block-container, .css-1lcbmhc {
+            margin-left: 340px !important;
+            max-width: calc(100% - 360px) !important;
+        }
+        
+        /* Hide collapse button */
+        button[data-testid="collapsedControl"] {
+            display: none !important;
+        }
+        
+        /* Override any auto-hide behavior */
+        .css-79elbk, .css-1kyxreq {
+            display: none !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -196,10 +205,18 @@ def main_app():
         
         # Navigation menu
         if 'current_page' not in st.session_state:
-            st.session_state.current_page = "My Mileage"
+            st.session_state.current_page = "Dashboard"
         
         # Navigation menu - plain text style
         st.write("**Navigation**")
+        
+        # Dashboard
+        if st.session_state.current_page == "Dashboard":
+            st.write("→ 🏠 Dashboard")
+        else:
+            if st.button("🏠 Dashboard", key="nav_dashboard"):
+                st.session_state.current_page = "Dashboard"
+                st.rerun()
         
         # My Mileage
         if st.session_state.current_page == "My Mileage":
@@ -217,13 +234,13 @@ def main_app():
                 st.session_state.current_page = "Safety Portal"
                 st.rerun()
         
-        # MSC Safety Bot - Work in Progress (disabled for deployment)
-        # if st.session_state.current_page == "Safety Bot":
-        #     st.write("→ 🤖 MSC SAFETY BOT")
-        # else:
-        #     if st.button("🤖 MSC SAFETY BOT", key="nav_bot"):
-        #         st.session_state.current_page = "Safety Bot"
-        #         st.rerun()
+        # Fitness Tracker
+        if st.session_state.current_page == "Fitness Tracker":
+            st.write("→ 💪 Fitness Tracker")
+        else:
+            if st.button("💪 Fitness Tracker", key="nav_fitness"):
+                st.session_state.current_page = "Fitness Tracker"
+                st.rerun()
         
         # Admin features (if applicable)
         if sheets_manager and sheets_manager.is_admin_user(st.session_state.username):
@@ -245,6 +262,21 @@ def main_app():
                 if st.button("👤 Account Management", key="nav_accounts"):
                     st.session_state.current_page = "Account Management"
                     st.rerun()
+        
+        # Commander features (if applicable)
+        elif sheets_manager and sheets_manager.is_commander_user(st.session_state.username):
+            st.markdown("---")
+            st.write("**Commander Features**")
+            
+            # Team Overview for commanders
+            if st.session_state.current_page == "Team Overview":
+                st.write("→ 👥 Team Overview")
+            else:
+                if st.button("👥 Team Overview", key="nav_team_cmd"):
+                    st.session_state.current_page = "Team Overview"
+                    st.rerun()
+            
+
         
         st.markdown("---")
         
@@ -270,21 +302,640 @@ def main_app():
         return
     
     # Main content area - display content based on current page
-    if st.session_state.current_page == "My Mileage":
+    if st.session_state.current_page == "Dashboard":
+        dashboard_landing_page(sheets_manager)
+    elif st.session_state.current_page == "My Mileage":
         my_mileage_page(sheets_manager)
     elif st.session_state.current_page == "Safety Portal":
         safety_portal_page(sheets_manager)
-    # elif st.session_state.current_page == "Safety Bot":
-    #     safety_bot_page(sheets_manager)  # Work in progress - disabled for deployment
+    elif st.session_state.current_page == "Fitness Tracker":
+        fitness_tracker_page(sheets_manager)
     elif st.session_state.current_page == "Team Overview":
         admin_team_dashboard(sheets_manager)
     elif st.session_state.current_page == "Account Management":
         account_management_tab(sheets_manager)
+
     elif st.session_state.current_page == "Change Password":
         change_password_tab()
     else:
         # Default to My Mileage if no valid page selected
         my_mileage_page(sheets_manager)
+
+def dashboard_landing_page(sheets_manager):
+    """Simple horizontal navigation bar for main modules"""
+    st.title("🏠 MSC DRIVr")
+    
+    # Create horizontal navigation bar
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🚗 My Mileage", key="goto_mileage", use_container_width=True):
+            st.session_state.current_page = "My Mileage"
+            st.rerun()
+    
+    with col2:
+        if st.button("🛡️ Safety Portal", key="goto_safety", use_container_width=True):
+            st.session_state.current_page = "Safety Portal"
+            st.rerun()
+    
+    with col3:
+        if st.button("💪 Fitness Tracker", key="goto_fitness", use_container_width=True):
+            st.session_state.current_page = "Fitness Tracker"
+            st.rerun()
+
+def fitness_tracker_page(sheets_manager):
+    """Strength & Power fitness tracking system"""
+    st.title("💪 Fitness Tracker")
+    st.markdown("### Strength & Power Training")
+    
+    # Create horizontal tabs for fitness features
+    tab1, tab2, tab3 = st.tabs(["📊 Log Workout", "📈 My Progress", "📋 Training Plans"])
+    
+    with tab1:
+        log_strength_workout(sheets_manager)
+    
+    with tab2:
+        view_fitness_progress(sheets_manager)
+    
+    with tab3:
+        view_training_plans(sheets_manager)
+
+def log_strength_workout(sheets_manager):
+    """Log Strength & Power workout session"""
+    st.markdown("#### Log Your Strength & Power Session")
+    
+    # Session selection
+    session_number = st.selectbox(
+        "Select Session Number",
+        options=list(range(1, 17)),
+        help="Choose your S&P session number (1-16)"
+    )
+    
+    if st.button("Load Session Exercises"):
+        try:
+            # Get exercises for selected session
+            exercises = get_session_exercises(sheets_manager, session_number)
+            
+            if exercises:
+                st.session_state.current_exercises = exercises
+                st.session_state.session_number = session_number
+                st.success(f"Loaded {len(exercises)} exercises for Session {session_number}")
+            else:
+                st.warning(f"No exercises found for Session {session_number}")
+                
+        except Exception as e:
+            st.error(f"Error loading exercises: {str(e)}")
+    
+    # Display exercise logging form if exercises are loaded
+    if 'current_exercises' in st.session_state and st.session_state.current_exercises:
+        st.markdown("---")
+        st.markdown(f"#### Session {st.session_state.session_number} Exercises")
+        
+        with st.form("workout_log_form"):
+            exercise_data = []
+            
+            for i, exercise in enumerate(st.session_state.current_exercises):
+                st.markdown(f"**{exercise['Exercise']}**")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.text(f"Sets: {exercise.get('Sets', 'N/A')}")
+                with col2:
+                    st.text(f"Reps: {exercise.get('Reps', 'N/A')}")
+                with col3:
+                    if exercise.get('Notes'):
+                        st.text(f"Notes: {exercise['Notes']}")
+                    else:
+                        st.text("")
+                
+                # Get last logged data for this exercise
+                last_weight, last_reps = get_last_exercise_data(sheets_manager, exercise['Exercise'])
+                
+                # Check if this is a bodyweight exercise
+                exercise_name = exercise['Exercise'].lower()
+                is_bodyweight = any(keyword in exercise_name for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+                
+                if is_bodyweight:
+                    # Bodyweight exercises - only track reps
+                    actual_reps = st.text_input(
+                        f"Reps Completed",
+                        value=last_reps,
+                        key=f"reps_{i}",
+                        help="Reps completed (auto-filled from last session)"
+                    )
+                    weight = 0  # No weight for bodyweight exercises
+                    
+                else:
+                    # Weighted exercises - track both weight and reps
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        weight = st.number_input(
+                            f"Weight (kg)",
+                            min_value=0.0,
+                            step=0.5,
+                            value=last_weight,
+                            key=f"weight_{i}",
+                            help="Weight lifted for this exercise (auto-filled from last session)"
+                        )
+                    with col2:
+                        actual_reps = st.text_input(
+                            f"Actual Reps",
+                            value=last_reps,
+                            key=f"reps_{i}",
+                            help="Reps completed (auto-filled from last session)"
+                        )
+                
+                exercise_data.append({
+                    'exercise': exercise,
+                    'weight': weight,
+                    'actual_reps': actual_reps
+                })
+                
+                st.markdown("---")
+            
+            # Submit button
+            if st.form_submit_button("Log Workout", use_container_width=True):
+
+                
+                try:
+                    log_fitness_data(sheets_manager, st.session_state.session_number, exercise_data)
+                    st.success("Workout logged successfully!")
+                    # Don't clear session state or rerun immediately to see debug output
+                    pass
+                except Exception as e:
+                    st.error(f"Error logging workout: {str(e)}")
+
+def get_session_exercises(sheets_manager, session_number):
+    """Get exercises for a specific session from Strength & Power sheet"""
+    try:
+        # Get the reference sheet using the correct method
+        if not hasattr(sheets_manager, 'spreadsheet'):
+            sheets_manager.connect()
+        
+        try:
+            sp_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power")
+        except:
+            # Create sheet if it doesn't exist
+            sp_sheet = sheets_manager.spreadsheet.add_worksheet(title="Strength & Power", rows=1000, cols=10)
+            # Add sample headers
+            headers = ["Session", "Exercise", "Sets", "Reps", "Notes"]
+            sp_sheet.append_row(headers)
+            st.warning("Created new 'Strength & Power' sheet. Please add your exercise data.")
+            return []
+            
+        records = sp_sheet.get_all_records()
+        
+        # Filter exercises for the selected session
+        session_exercises = [
+            record for record in records 
+            if record.get('Session') == session_number
+        ]
+        
+        return session_exercises
+        
+    except Exception as e:
+        st.error(f"Error accessing Strength & Power sheet: {str(e)}")
+        return []
+
+def log_fitness_data(sheets_manager, session_number, exercise_data):
+    """Log workout data to Strength & Power Tracking sheet"""
+    try:
+        # Get or create tracking sheet
+        if not hasattr(sheets_manager, 'spreadsheet'):
+            sheets_manager.connect()
+            
+        try:
+            tracking_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power Tracking")
+            # Delete existing sheet to recreate with new format
+            sheets_manager.spreadsheet.del_worksheet(tracking_sheet)
+            st.info("Deleted old tracking sheet to create new horizontal format")
+        except:
+            pass  # Sheet doesn't exist, that's fine
+            
+        # Create new sheet with exercise-based columns
+        tracking_sheet = sheets_manager.spreadsheet.add_worksheet(title="Strength & Power Tracking", rows=1000, cols=50)
+        
+        # Create headers with exercises as columns
+        base_headers = ["Date", "Soldier Name / ID", "Session Number"]
+        
+        # Get all unique exercises from the reference sheet to create comprehensive headers
+        try:
+            sp_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power")
+            all_records = sp_sheet.get_all_records()
+            unique_exercises = list(set([record.get('Exercise', '') for record in all_records if record.get('Exercise')]))
+            unique_exercises.sort()  # Sort alphabetically
+        except:
+            # Fallback to common exercises if reference sheet not available
+            unique_exercises = [
+                "Back Squat", "Bench Press", "Bent Over Row", "Bicep Curl", "Bulgarian Split Squat",
+                "Burpees", "Chin-ups", "Dips", "Goblet Squat", "Incline Dumbbell Press",
+                "Jump Squats", "Lat Pulldown", "Lateral Raise", "Lunges", "Mountain Climbers",
+                "Overhead Press", "Plank", "Pull Up", "Push-ups", "Romanian Deadlift",
+                "Step Up (optional)", "Sumo Deadlift", "Tricep Extension"
+            ]
+        
+        # Create weight and reps columns for each exercise (skip weight for bodyweight exercises)
+        exercise_headers = []
+        for exercise in unique_exercises:
+            # Check if this is a bodyweight exercise
+            exercise_name_lower = exercise.lower()
+            is_bodyweight = any(keyword in exercise_name_lower for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+            
+            if is_bodyweight:
+                # Only add reps column for bodyweight exercises
+                exercise_headers.append(f"{exercise} (reps)")
+            else:
+                # Add both weight and reps columns for weighted exercises
+                exercise_headers.extend([f"{exercise} (kg)", f"{exercise} (reps)"])
+        
+        headers = base_headers + exercise_headers
+        tracking_sheet.append_row(headers)
+        st.success(f"Created new tracking sheet with {len(unique_exercises)} exercise columns")
+        
+        # Get user info
+        user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
+        full_name = user_qualifications.get('full_name', st.session_state.username)
+        
+        # Prepare single row with all exercises as columns
+        from datetime import datetime
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # Get header row and log in single row format
+        headers = tracking_sheet.row_values(1)
+        # Create single row with all exercises as columns
+        row_data = [""] * len(headers)
+        row_data[0] = current_date      # Date
+        row_data[1] = full_name         # Soldier Name / ID  
+        row_data[2] = session_number    # Session Number
+        
+        # Fill in exercise data using exercise-specific weight and reps columns
+        exercises_logged = 0
+        for data in exercise_data:
+            if data['weight'] > 0 or data['actual_reps']:  # Log if either weight or reps entered
+                exercise_name = data['exercise'].get('Exercise', '')
+                weight_col = f"{exercise_name} (kg)"
+                reps_col = f"{exercise_name} (reps)"
+                
+                try:
+                    # Check if this is a bodyweight exercise
+                    exercise_name_lower = exercise_name.lower()
+                    is_bodyweight = any(keyword in exercise_name_lower for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+                    
+                    # Set weight if entered (skip for bodyweight exercises)
+                    if not is_bodyweight and data['weight'] > 0 and weight_col in headers:
+                        weight_idx = headers.index(weight_col)
+                        row_data[weight_idx] = data['weight']
+                    
+                    # Set reps if entered
+                    if data['actual_reps'] and reps_col in headers:
+                        reps_idx = headers.index(reps_col)
+                        row_data[reps_idx] = data['actual_reps']
+                        exercises_logged += 1  # Count exercise as logged if reps are entered
+                    elif not is_bodyweight and data['weight'] > 0:
+                        exercises_logged += 1  # Count weighted exercise if weight is entered
+                        
+                except ValueError:
+                    continue
+        
+        if exercises_logged > 0:
+            tracking_sheet.append_row(row_data)
+            st.success(f"Logged session {session_number} with {exercises_logged} exercises!")
+            # Clear session state and refresh to show updated data
+            if 'current_exercises' in st.session_state:
+                del st.session_state.current_exercises
+            if 'session_number' in st.session_state:
+                del st.session_state.session_number
+            st.rerun()
+        else:
+            st.warning("No exercise data entered to log")
+            
+    except Exception as e:
+        raise Exception(f"Failed to log workout data: {str(e)}")
+
+def view_fitness_progress(sheets_manager):
+    """View personal fitness progress and history"""
+    st.markdown("#### Your Progress")
+    
+    try:
+        # Get tracking data
+        if not hasattr(sheets_manager, 'spreadsheet'):
+            sheets_manager.connect()
+            
+        try:
+            tracking_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power Tracking")
+            records = tracking_sheet.get_all_records()
+        except:
+            st.info("No workout tracking data found. Start logging workouts to see progress!")
+            return
+        
+        # Get user info for filtering
+        user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
+        full_name = user_qualifications.get('full_name', st.session_state.username)
+        
+        # Filter user's records
+        user_records = [
+            record for record in records 
+            if record.get('Soldier Name / ID') == full_name
+        ]
+        
+        if user_records:
+            # Display recent workouts
+            st.markdown("##### Recent Workouts")
+            
+            # Sort records by date to get most recent first
+            user_records_sorted = sorted(user_records, key=lambda x: x.get('Date', ''), reverse=True)
+            recent_sessions = user_records_sorted[:5]  # Show last 5 sessions
+            
+            for record in recent_sessions:
+                session_num = record.get('Session Number', 'Unknown')
+                date = record.get('Date', 'Unknown Date')
+                
+                with st.expander(f"Session {session_num} - {date}"):
+                    # Get all exercise columns and display their values
+                    exercise_count = 0
+                    displayed_exercises = set()  # Track which exercises we've already displayed
+                    
+                    for key, value in record.items():
+                        if '(kg)' in key or '(reps)' in key:
+                            if value and str(value).strip():  # Only show exercises with data
+                                exercise_name = key.replace(' (kg)', '').replace(' (reps)', '')
+                                
+                                if exercise_name in displayed_exercises:
+                                    continue  # Skip if already displayed
+                                    
+                                if '(kg)' in key:
+                                    # Weighted exercise - check for both weight and reps
+                                    reps_key = f"{exercise_name} (reps)"
+                                    reps_value = record.get(reps_key, '')
+                                    if reps_value:
+                                        st.write(f"**{exercise_name}**: {value}kg x {reps_value} reps")
+                                    else:
+                                        st.write(f"**{exercise_name}**: {value}kg")
+                                    exercise_count += 1
+                                    displayed_exercises.add(exercise_name)
+                                    
+                                elif '(reps)' in key:
+                                    # Check if this is a bodyweight exercise (no corresponding kg column)
+                                    weight_key = f"{exercise_name} (kg)"
+                                    if weight_key not in record:
+                                        # This is a bodyweight exercise
+                                        st.write(f"**{exercise_name}**: {value} reps")
+                                        exercise_count += 1
+                                        displayed_exercises.add(exercise_name)
+                    
+                    if exercise_count == 0:
+                        st.info("No exercise data recorded for this session")
+            
+            # Exercise progress
+            st.markdown("##### Exercise Progress")
+            
+            # Get all unique exercises from column headers (both weighted and bodyweight)
+            if user_records:
+                sample_record = user_records[0]
+                exercise_names = []
+                for key in sample_record.keys():
+                    if '(kg)' in key:
+                        exercise_name = key.replace(' (kg)', '')
+                        exercise_names.append(exercise_name)
+                    elif '(reps)' in key:
+                        exercise_name = key.replace(' (reps)', '')
+                        weight_key = f"{exercise_name} (kg)"
+                        if weight_key not in sample_record.keys():
+                            # This is a bodyweight exercise (reps column without corresponding kg column)
+                            exercise_names.append(exercise_name)
+                
+                # Remove duplicates and sort
+                exercise_names = sorted(list(set(exercise_names)))
+                
+                if exercise_names:
+                    selected_exercise = st.selectbox("Select Exercise", exercise_names)
+                    
+                    if selected_exercise:
+                        # Check if this is a bodyweight exercise
+                        exercise_name_lower = selected_exercise.lower()
+                        is_bodyweight = any(keyword in exercise_name_lower for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+                        
+                        weight_col = f"{selected_exercise} (kg)"
+                        reps_col = f"{selected_exercise} (reps)"
+                        
+                        # Prepare chart data for weight progression
+                        chart_data = []
+                        for record in user_records_sorted:
+                            date = record.get('Date', '')
+                            weight = record.get(weight_col, '') if not is_bodyweight else ''
+                            reps = record.get(reps_col, '')
+                            
+                            if date and (weight or reps):
+                                try:
+                                    weight_val = float(weight) if weight and not is_bodyweight else 0
+                                    chart_data.append({
+                                        'Date': date,
+                                        'Weight (kg)': weight_val,
+                                        'Reps': reps if reps else 0
+                                    })
+                                except (ValueError, TypeError):
+                                    continue
+                        
+                        if chart_data:
+                            # Display weight progression chart (only for weighted exercises)
+                            if not is_bodyweight and any(item['Weight (kg)'] > 0 for item in chart_data):
+                                st.markdown(f"**Weight Progression for {selected_exercise}**")
+                                import pandas as pd
+                                df = pd.DataFrame(chart_data)
+                                df = df[df['Weight (kg)'] > 0]  # Only show entries with weight data
+                                if not df.empty:
+                                    st.line_chart(df.set_index('Date')[['Weight (kg)']])
+                            
+                            # Display recent performance table
+                            st.markdown(f"**Recent Performance for {selected_exercise}**")
+                            performance_data = []
+                            for item in chart_data[:10]:  # Show last 10 sessions
+                                if item['Weight (kg)'] > 0 or item['Reps']:
+                                    if is_bodyweight:
+                                        # Only show reps for bodyweight exercises
+                                        performance_data.append({
+                                            'Date': item['Date'],
+                                            'Reps': item['Reps'] if item['Reps'] else '-'
+                                        })
+                                    else:
+                                        # Show both weight and reps for weighted exercises
+                                        performance_data.append({
+                                            'Date': item['Date'],
+                                            'Weight (kg)': f"{item['Weight (kg)']}kg" if item['Weight (kg)'] > 0 else '-',
+                                            'Reps': item['Reps'] if item['Reps'] else '-'
+                                        })
+                            
+                            if performance_data:
+                                import pandas as pd
+                                df_performance = pd.DataFrame(performance_data)
+                                st.dataframe(df_performance, hide_index=True)
+                            else:
+                                st.info("No performance data recorded for this exercise yet.")
+                        else:
+                            st.info("No data recorded for this exercise yet.")
+                else:
+                    st.info("No exercises found in your workout history.")
+        else:
+            st.info("No workout data found. Start logging your workouts to see progress!")
+            
+    except Exception as e:
+        st.error(f"Error loading progress data: {str(e)}")
+
+def view_training_plans(sheets_manager):
+    """View available training plans and session details with latest workout data"""
+    st.markdown("#### Training Plans & Session Reference")
+    
+    try:
+        # Get reference data
+        if not hasattr(sheets_manager, 'spreadsheet'):
+            sheets_manager.connect()
+            
+        try:
+            sp_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power")
+            records = sp_sheet.get_all_records()
+        except:
+            st.info("No 'Strength & Power' sheet found. Please create this sheet with your exercise data.")
+            return
+        
+        # Get user's tracking data
+        user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
+        full_name = user_qualifications.get('full_name', st.session_state.username)
+        
+        try:
+            tracking_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power Tracking")
+            tracking_records = tracking_sheet.get_all_records()
+            user_tracking = [r for r in tracking_records if r.get('Soldier Name / ID') == full_name]
+        except:
+            user_tracking = []
+        
+        # Group records by session
+        sessions = {}
+        for record in records:
+            session_num = record.get('Session')
+            if session_num:
+                if session_num not in sessions:
+                    sessions[session_num] = []
+                sessions[session_num].append(record)
+        
+        st.markdown("##### Session Overview")
+        for session_num in sorted(sessions.keys()):
+            session_exercises = sessions[session_num]
+            
+            # Find the latest workout for this session
+            session_workouts = [r for r in user_tracking if r.get('Session Number') == session_num]
+            latest_workout = session_workouts[-1] if session_workouts else None
+            
+            # Create expander title with workout status
+            if latest_workout:
+                workout_date = latest_workout.get('Date', 'Unknown Date')
+                expander_title = f"Session {session_num} ({len(session_exercises)} exercises) - Last completed: {workout_date}"
+            else:
+                expander_title = f"Session {session_num} ({len(session_exercises)} exercises) - Not completed yet"
+            
+            with st.expander(expander_title):
+                for exercise in session_exercises:
+                    exercise_name = exercise.get('Exercise', 'Unknown')
+                    
+                    # Create columns for layout
+                    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+                    
+                    with col1:
+                        st.write(f"**{exercise_name}**")
+                    with col2:
+                        st.write(f"Sets: {exercise.get('Sets', 'N/A')}")
+                    with col3:
+                        st.write(f"Reps: {exercise.get('Reps', 'N/A')}")
+                    with col4:
+                        # Show latest performance for this exercise
+                        if latest_workout:
+                            weight_col = f"{exercise_name} (kg)"
+                            reps_col = f"{exercise_name} (reps)"
+                            
+                            last_weight = latest_workout.get(weight_col, '')
+                            last_reps = latest_workout.get(reps_col, '')
+                            
+                            # Check if this is a bodyweight exercise
+                            exercise_name_lower = exercise_name.lower()
+                            is_bodyweight = any(keyword in exercise_name_lower for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+                            
+                            if last_weight or last_reps:
+                                performance_text = ""
+                                if not is_bodyweight and last_weight:
+                                    performance_text += f"{last_weight}kg"
+                                if last_reps:
+                                    if performance_text:
+                                        performance_text += f" x {last_reps}"
+                                    else:
+                                        performance_text = f"{last_reps} reps"
+                                st.write(f"Last: {performance_text}")
+                            else:
+                                st.write("Last: Not logged")
+                        else:
+                            st.write("Last: No data")
+                    
+                    if exercise.get('Notes'):
+                        st.caption(f"Notes: {exercise['Notes']}")
+                    st.markdown("---")
+        
+    except Exception as e:
+        st.error(f"Error loading training plans: {str(e)}")
+        st.info("Make sure the 'Strength & Power' sheet exists with session data.")
+
+def get_last_exercise_data(sheets_manager, exercise_name):
+    """Get the last logged weight and reps for a specific exercise"""
+    try:
+        # Get user info for filtering
+        user_qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
+        full_name = user_qualifications.get('full_name', st.session_state.username)
+        
+        # Get tracking data
+        if not hasattr(sheets_manager, 'spreadsheet'):
+            sheets_manager.connect()
+            
+        try:
+            tracking_sheet = sheets_manager.spreadsheet.worksheet("Strength & Power Tracking")
+            records = tracking_sheet.get_all_records()
+            
+        except:
+            return 0.0, ""  # No tracking data available
+        
+        # Filter user's records using new column format
+        user_records = [
+            record for record in records 
+            if record.get('Soldier Name / ID') == full_name
+        ]
+        
+        if user_records:
+            # Get the most recent record (last in the list)
+            last_record = user_records[-1]
+            
+            # Check if this is a bodyweight exercise
+            exercise_name_lower = exercise_name.lower()
+            is_bodyweight = any(keyword in exercise_name_lower for keyword in ['pull up', 'pull-up', 'pullup', 'push up', 'push-up', 'pushup', 'sit up', 'sit-up', 'situp'])
+            
+            # Look for exercise-specific weight and reps columns
+            weight_col = f"{exercise_name} (kg)"
+            reps_col = f"{exercise_name} (reps)"
+            
+            try:
+                # For bodyweight exercises, don't look for weight
+                if is_bodyweight:
+                    last_weight = 0.0
+                else:
+                    last_weight = float(last_record.get(weight_col, 0)) if last_record.get(weight_col) else 0.0
+                
+                last_reps = str(last_record.get(reps_col, '')) if last_record.get(reps_col) else ""
+                return last_weight, last_reps
+            except (ValueError, TypeError):
+                return 0.0, ""
+        else:
+            return 0.0, ""  # No previous data for this exercise
+            
+    except Exception as e:
+        # Debug: Show error details
+        st.error(f"Debug error in get_last_exercise_data: {str(e)}")
+        return 0.0, ""
 
 def my_mileage_page(sheets_manager):
     """Mileage tracking page with horizontal sub-menu tabs"""
@@ -315,14 +966,6 @@ def safety_portal_page(sheets_manager):
     with tab3:
         safety_pointer_tab(sheets_manager)
 
-def safety_bot_page(sheets_manager):
-    """MSC Safety Bot page"""
-    st.title("🤖 MSC SAFETY BOT")
-    st.markdown("---")
-    
-    # Render the chatbot interface
-    chatbot.render_chatbot_interface(sheets_manager)
-
 def safety_dashboard_tab(sheets_manager):
     """Safety Portal Dashboard - displays submitted content"""
     
@@ -348,57 +991,84 @@ def display_safety_infographics(sheets_manager):
         # Try to get infographics data from Google Sheets
         infographics_data = sheets_manager.get_safety_infographics() if hasattr(sheets_manager, 'get_safety_infographics') else []
         
-        # Filter out entries without valid images first
-        valid_infographics = []
-        for infographic in infographics_data:
-            image_url = infographic.get('File_Name', '')
-            if image_url and image_url not in ['METADATA_ONLY', 'UPLOAD_FAILED', 'R2_NOT_CONFIGURED', '', 'N/A']:
-                valid_infographics.append(infographic)
-        
-        if valid_infographics and len(valid_infographics) > 0:
+        if infographics_data and len(infographics_data) > 0:
             st.markdown("#### 📸 Safety Infographics")
             
             # Display infographics in card format
-            for i, infographic in enumerate(valid_infographics[:6]):  # Show latest 6 valid ones
+            for i, infographic in enumerate(infographics_data[:6]):  # Show latest 6
                 with st.container():
-                    # Fix column mapping based on actual data structure
-                    image_url = infographic.get('File_Name', '')  # URL is in File_Name field
-                    submitter_username = infographic.get('Title', 'Unknown')  # Submitter username is in Title field
-                    date = infographic.get('Image_URL', 'N/A')  # Date is in Image_URL field
+                    # Get the correct fields based on actual data structure
+                    title = infographic.get('Title', 'Safety Infographic')
+                    image_url = infographic.get('File_Type', '')  # Actual image URL is in File_Type
+                    submitter_username = infographic.get('Submitter', 'Unknown')  # This appears to be a timestamp
+                    original_filename = infographic.get('Date', 'N/A')  # Original filename is in Date field
                     
-                    # Get full name and rank for the submitter
+                    # Extract username from title and get full name/rank
+                    username = title  # Title contains the username
                     try:
-                        submitter_info = sheets_manager.get_user_full_name(submitter_username)
-                        submitter_display = submitter_info if submitter_info != submitter_username else submitter_username
-                    except:
-                        submitter_display = submitter_username
-                    
-                    # Format date to show only date part
-                    try:
-                        if len(date.split()) > 1:
-                            date_only = date.split()[0]  # Get just the date part
+                        # Get full name and rank from sheets manager
+                        user_info = sheets_manager.check_user_qualifications(username)
+                        if user_info:
+                            # Build display name with available information
+                            rank = user_info.get('rank', '')
+                            full_name = user_info.get('full_name', '')
+                            
+                            if rank and full_name:
+                                submitter_display = f"{rank} {full_name}"
+                            elif full_name:
+                                submitter_display = full_name
+                            elif rank:
+                                submitter_display = f"{rank} {username}"
+                            else:
+                                submitter_display = username
                         else:
-                            date_only = date
-                    except:
-                        date_only = date
+                            submitter_display = username
+                    except Exception:
+                        submitter_display = username
                     
-                    # Show image with submitter info below - skip entries without valid data
-                    if image_url and image_url not in ['METADATA_ONLY', 'UPLOAD_FAILED', 'R2_NOT_CONFIGURED', '', 'N/A']:
-                        # Only show entries with valid image URLs
-                        try:
-                            st.image(image_url, use_container_width=True)
+                    # Use timestamp as date
+                    date_display = submitter_username
+                    
+                    # Format timestamp for display
+                    try:
+                        if len(date_display.split()) > 1:
+                            date_only = date_display.split()[0]  # Get just the date part
+                        else:
+                            date_only = date_display
+                    except:
+                        date_only = date_display
+                    
+                    # Show image with title and submitter info
+                    if image_url and image_url not in ['METADATA_ONLY', 'UPLOAD_FAILED', 'R2_NOT_CONFIGURED', '']:
+                        # Validate URL format
+                        if image_url.startswith(('http://', 'https://')):
+                            try:
+                                # Don't display title separately since it's just the username
+                                st.image(image_url, use_container_width=True, caption=None)
+                                st.markdown(f"""
+                                <div style="text-align: center; margin-top: 10px;">
+                                    <p style="margin: 2px 0; color: #666; font-size: 0.9em;"><strong>Uploaded by:</strong> {submitter_display}</p>
+                                    <p style="margin: 2px 0; color: #666; font-size: 0.9em;">{date_only}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+                            except Exception as img_error:
+                                st.error(f"📷 Image could not load: {str(img_error)}")
+                                st.caption(f"URL: {image_url}")
+                        else:
+                            # Invalid URL format - show metadata only
+                            st.markdown(f"**{title if title != 'Safety Infographic' else 'Safety Submission'}**")
+                            st.info(f"📷 Image file: {original_filename}")
                             st.markdown(f"""
                             <div style="text-align: center; margin-top: 10px;">
                                 <p style="margin: 2px 0; color: #666; font-size: 0.9em;"><strong>Uploaded by:</strong> {submitter_display}</p>
                                 <p style="margin: 2px 0; color: #666; font-size: 0.9em;">{date_only}</p>
                             </div>
                             """, unsafe_allow_html=True)
-                        except Exception as img_error:
-                            # Skip invalid entries silently
-                            continue
                     else:
-                        # Skip entries without valid images (don't show "Metadata only")
-                        continue
+                        st.markdown("📷 *Metadata only - no image available*")
+                        if image_url:
+                            st.caption(f"Status: {image_url}")
+                        st.markdown(f"**Submitted by:** {submitter_display} | **Date:** {date_only}")
                     
                     st.markdown("---")
         else:
@@ -422,22 +1092,57 @@ def display_safety_infographics(sheets_manager):
 def display_safety_pointers(sheets_manager):
     """Display safety pointers from Google Sheets"""
     try:
-        # Try to get safety pointers data from Google Sheets
+        # Try to get safety pointers data from Google Sheets (clear any cache)
         safety_pointers_data = sheets_manager.get_safety_pointers()
         
         if safety_pointers_data and len(safety_pointers_data) > 0:
             st.markdown("#### 📝 Safety Observations & Recommendations")
             
+            # Debug first to understand the actual data structure (remove after fixing)
+            # with st.expander("🔧 Debug Data Structure", expanded=False):
+            #     st.write("**First record structure:**")
+            #     if safety_pointers_data:
+            #         st.json(safety_pointers_data[0])
+            
             # Display safety pointers in card format
             for i, pointer in enumerate(safety_pointers_data[:8]):  # Show latest 8
                 with st.container():
-                    # Fix column mapping based on actual data structure from debug
-                    submitter_username = pointer.get('Observation_Date', 'Unknown')  # Username in Observation_Date field
-                    obs_date = pointer.get('Observation', 'N/A')  # Date in Observation field
-                    observation = pointer.get('Category', 'N/A')  # Observation text in Category field  
-                    reflection = pointer.get('Reflection', 'N/A')  # Reflection is correct
-                    recommendation = pointer.get('Recommendation', 'N/A')  # Recommendation is correct
-                    category = pointer.get('Submitter', 'Safety Observation')  # Category in Submitter field
+                    # Based on your feedback, the actual data seems to be:
+                    # - Observation field contains: "2025-08-11" (should be observation_date)
+                    # - Reflection field contains: "test1" (should be observation text)
+                    # - Recommendation field contains: "test2" (should be reflection)
+                    # - Category field contains what should be recommendation
+                    # - Submitter field contains category info
+                    
+                    # Let me try to map based on the actual data pattern:
+                    submitter_username = pointer.get('Submitter', 'Unknown')
+                    
+                    # Try different mappings to see what's actually happening
+                    raw_obs = pointer.get('Observation', 'N/A')
+                    raw_ref = pointer.get('Reflection', 'N/A')
+                    raw_rec = pointer.get('Recommendation', 'N/A')
+                    raw_cat = pointer.get('Category', 'N/A')
+                    raw_date = pointer.get('Observation_Date', 'N/A')
+                    
+                    # Now I know the exact mapping from the debug data:
+                    # Observation_Date field contains: username ("cabre")
+                    # Observation field contains: date ("2025-08-11") 
+                    # Reflection field contains: observation text ("test1")
+                    # Recommendation field contains: reflection text ("test2")
+                    # Category field contains: recommendation text ("test3")
+                    # Submitter field contains: category ("Near Miss")
+                    
+                    # Correct the mapping:
+                    submitter_username = raw_date  # Username is in Observation_Date field
+                    obs_date = raw_obs             # Date is in Observation field
+                    observation = raw_ref          # Observation text is in Reflection field
+                    reflection = raw_rec           # Reflection text is in Recommendation field
+                    recommendation = raw_cat       # Recommendation text is in Category field
+                    category = submitter_username  # Category is in Submitter field
+                    
+                    # Clean up the submitter name (remove extra text)
+                    if submitter_username and submitter_username != 'N/A':
+                        submitter_username = submitter_username.strip()
                     
                     # Set category color based on category
                     category_color = {
@@ -563,27 +1268,12 @@ def safety_infographic_tab(sheets_manager):
                             submission_data['dimensions'] = upload_result['dimensions']
                             st.success(f"✅ {upload_result['message']}")
                             st.info(f"🔗 Public URL: {image_url}")
-                            
-                            # Analyze image with BLIP model
-                            with st.spinner("🤖 Analyzing image content with AI..."):
-                                from chatbot import MSCSafetyBot
-                                bot = MSCSafetyBot()
-                                image_analysis = bot.analyze_image_with_blip(image_url)
-                                
-                                if image_analysis and not image_analysis.startswith(("No ", "Failed", "BLIP", "Request", "Network", "Analysis")):
-                                    st.success(f"🔍 AI Analysis: {image_analysis}")
-                                    submission_data['ai_analysis'] = image_analysis
-                                else:
-                                    st.warning(f"⚠️ AI Analysis: {image_analysis}")
-                                    submission_data['ai_analysis'] = image_analysis or "Analysis unavailable"
                         else:
                             st.warning(f"⚠️ R2 upload failed: {upload_result['error']}")
                             st.info("📝 Continuing with metadata-only submission...")
                             submission_data['image_url'] = "UPLOAD_FAILED"
-                            submission_data['ai_analysis'] = "Upload failed - cannot analyze image"
                     else:
                         submission_data['image_url'] = "METADATA_ONLY"
-                        submission_data['ai_analysis'] = "R2 storage not configured - cannot analyze image"
                         st.info("📝 Saving submission metadata to Google Sheets (R2 storage not configured)")
                     
                     # Save to Google Sheets
@@ -593,10 +1283,10 @@ def safety_infographic_tab(sheets_manager):
                             safety_sheet = sheets_manager.spreadsheet.worksheet('Safety_Infographics')
                         except:
                             # Create sheet if it doesn't exist
-                            safety_sheet = sheets_manager.spreadsheet.add_worksheet(title='Safety_Infographics', rows=1000, cols=11)
+                            safety_sheet = sheets_manager.spreadsheet.add_worksheet(title='Safety_Infographics', rows=1000, cols=10)
                             
                             # Add headers
-                            headers = ['Submitter', 'Title', 'Date', 'Original_Filename', 'File_Size', 'Image_URL', 'Optimized_Size', 'Dimensions', 'Tags', 'AI_Analysis']
+                            headers = ['Submitter', 'Title', 'Date', 'Original_Filename', 'File_Size', 'Image_URL', 'Optimized_Size', 'Dimensions', 'Tags']
                             safety_sheet.append_row(headers)
                         
                         # Append the submission data
@@ -609,8 +1299,7 @@ def safety_infographic_tab(sheets_manager):
                             submission_data.get('image_url', ''),
                             str(submission_data.get('optimized_size', '')),
                             str(submission_data.get('dimensions', '')),
-                            '',  # Tags placeholder
-                            submission_data.get('ai_analysis', '')  # AI analysis from BLIP
+                            ''  # Tags placeholder
                         ]
                         safety_sheet.append_row(row_data)
                         
@@ -625,8 +1314,6 @@ def safety_infographic_tab(sheets_manager):
                             if image_url and image_url not in ["METADATA_ONLY", "UPLOAD_FAILED"]:
                                 st.write(f"**Storage:** Cloudflare R2")
                                 st.write(f"**URL:** {image_url}")
-                                if submission_data.get('ai_analysis'):
-                                    st.write(f"**AI Analysis:** {submission_data['ai_analysis']}")
                             else:
                                 st.write(f"**Storage:** Google Sheets metadata only")
                                 st.info("💡 To enable cloud image storage, set up Cloudflare R2 credentials")
@@ -706,23 +1393,37 @@ def safety_pointer_tab(sheets_manager):
                         # Try to get or create Safety_Pointers worksheet
                         try:
                             safety_pointers_sheet = sheets_manager.spreadsheet.worksheet('Safety_Pointers')
+                            # Get existing headers to ensure correct order
+                            existing_headers = safety_pointers_sheet.row_values(1)
                         except:
                             # Create sheet if it doesn't exist
                             safety_pointers_sheet = sheets_manager.spreadsheet.add_worksheet(title='Safety_Pointers', rows=1000, cols=8)
                             
-                            # Add headers
+                            # Add headers in the correct order
                             headers = ['Submitter', 'Observation_Date', 'Observation', 'Reflection', 'Recommendation', 'Category', 'Submission_Date']
                             safety_pointers_sheet.append_row(headers)
+                            existing_headers = headers
                         
-                        # Append the submission data - ensure correct order matching headers
+                        # Check if headers match expected format and correct order
+                        expected_headers = ['Submitter', 'Observation_Date', 'Observation', 'Reflection', 'Recommendation', 'Category', 'Submission_Date']
+                        
+                        if existing_headers != expected_headers:
+                            # Headers are wrong, update them
+                            safety_pointers_sheet.update('A1:G1', [expected_headers])
+                        
+                        # Based on debug data, the actual order being written is wrong
+                        # The headers are: ['Submitter', 'Observation_Date', 'Observation', 'Reflection', 'Recommendation', 'Category', 'Submission_Date']
+                        # But data is being written as: [category, observation_date, observation, reflection, recommendation, submitter, submission_date]
+                        # Let me fix this to write in the correct order matching headers
+                        
                         row_data = [
-                            submission_data['submitter'],          # Submitter
-                            submission_data['observation_date'],   # Observation_Date  
-                            submission_data['observation'],       # Observation
-                            submission_data['reflection'],        # Reflection
-                            submission_data['recommendation'],    # Recommendation
-                            submission_data['category'],          # Category
-                            submission_data['submission_date']    # Submission_Date
+                            submission_data['submitter'],          # Submitter (was going to Category position)
+                            submission_data['observation_date'],   # Observation_Date (was going to Submitter position)
+                            submission_data['observation'],       # Observation (was correct)
+                            submission_data['reflection'],        # Reflection (was correct)
+                            submission_data['recommendation'],    # Recommendation (was correct)
+                            submission_data['category'],          # Category (was going to Observation_Date position)
+                            submission_data['submission_date']    # Submission_Date (was correct)
                         ]
                         
                         safety_pointers_sheet.append_row(row_data)
@@ -743,23 +1444,6 @@ def dashboard_tab(sheets_manager):
     """Dashboard overview"""
     
     try:
-        # Check if user is admin
-        is_admin = sheets_manager.is_admin_user(st.session_state.username)
-        
-        if is_admin:
-            # Admin dashboard with Individual/Team options
-            view_option = st.selectbox(
-                "Select View:",
-                ["Individual", "Team Overview"],
-                key="admin_view_selector"
-            )
-            
-            if view_option == "Team Overview":
-                admin_team_dashboard(sheets_manager)
-                return
-            else:
-                st.subheader("📊 Individual View")
-        
         # Individual dashboard (for both admin and regular users)
         # Get user qualifications
         qualifications = sheets_manager.check_user_qualifications(st.session_state.username)
@@ -875,20 +1559,186 @@ def dashboard_tab(sheets_manager):
 
 def admin_team_dashboard(sheets_manager):
     """Revamped admin team overview dashboard"""
+    
+    # Add CSS styles for dashboard
+    st.markdown("""
+    <style>
+        /* Enhanced Metric Cards - All same height */
+        .metric-card-current, .metric-card-expired, .metric-card-expiring, .metric-card-vehicles {
+            padding: 15px 10px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            height: 160px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: visible;
+            box-sizing: border-box;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+            width: 100%;
+        }
+        
+        /* Hover effects for cards */
+        .metric-card-current:hover, .metric-card-expired:hover, .metric-card-expiring:hover, .metric-card-vehicles:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+        
+        /* Optimized text sizing for metric cards to prevent cutoff */
+        .metric-card-current h2, .metric-card-expired h2, .metric-card-expiring h2, .metric-card-vehicles h2 {
+            margin: 5px 0;
+            font-size: clamp(1.4rem, 3vw, 1.8rem);
+            line-height: 1.1;
+            font-weight: 700;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        
+        .metric-card-current p, .metric-card-expired p, .metric-card-expiring p, .metric-card-vehicles p {
+            margin: 4px 0;
+            font-size: clamp(0.85rem, 2vw, 1rem);
+            line-height: 1.2;
+            font-weight: 600;
+        }
+        
+        .metric-card-current small, .metric-card-expired small, .metric-card-expiring small, .metric-card-vehicles small {
+            margin: 3px 0;
+            font-size: clamp(0.7rem, 1.5vw, 0.8rem);
+            line-height: 1.1;
+            opacity: 0.8;
+        }
+        
+        /* Container for metric cards grid - ensures equal heights */
+        .metrics-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: 1fr;
+            gap: 15px;
+            margin: 20px 0;
+            width: 100%;
+            align-items: stretch;
+        }
+        
+        /* Individual metric card wrapper - ensures cards fill full height */
+        .metric-wrapper {
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            display: flex;
+            align-items: stretch;
+        }
+        
+        .metric-wrapper > div {
+            flex: 1;
+        }
+        
+        /* Responsive grid for smaller screens */
+        @media (max-width: 768px) {
+            .metrics-container {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .metrics-container {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+        }
+        
+        .metric-card-current {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            color: #155724;
+            border-left: 5px solid #28a745;
+        }
+        .metric-card-expired {
+            background: linear-gradient(135deg, #f8d7da, #f1b0b7);
+            color: #721c24;
+            border-left: 5px solid #dc3545;
+        }
+        .metric-card-expiring {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            color: #856404;
+            border-left: 5px solid #ffc107;
+        }
+        .metric-card-vehicles {
+            background: linear-gradient(135deg, #e2e3e5, #d1d3d4);
+            color: #383d41;
+            border-left: 5px solid #6c757d;
+        }
+        
+        /* Action Items */
+        .action-item-critical {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 8px 0;
+            border-left: 4px solid #dc3545;
+        }
+        .action-item-warning {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 8px 0;
+            border-left: 4px solid #ffc107;
+        }
+        
+
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Header with refresh button
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔄 Refresh", help="Get latest data"):
+            # Clear all relevant caches for immediate updates
+            clear_session_cache()
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.success("Data refreshed!")
+            st.rerun()
+    
+    with col2:
+        st.markdown("""
+        <h1 style="text-align: center; margin-bottom: 30px; color: #2c3e50;">Team Overview</h1>
+        """, unsafe_allow_html=True)
+    
+    # Create tabs for different team overviews
+    tab1, tab2 = st.tabs(["🚗 Mileage Status", "💪 Fitness Progress"])
+    
+    with tab1:
+        mileage_team_overview(sheets_manager)
+    
+    with tab2:
+        fitness_team_overview(sheets_manager)
+
+def mileage_team_overview(sheets_manager):
+    """Team overview for mileage/vehicle currency"""
     try:
-        # Get all personnel status
-        all_personnel = sheets_manager.get_all_personnel_status()
+        # Get all personnel status with session caching for faster loading
+        @session_cache(ttl=600)  # 10 minute session cache
+        def get_cached_personnel_status():
+            return sheets_manager.get_all_personnel_status()
+        
+        all_personnel = get_cached_personnel_status()
         
         if not all_personnel:
             st.warning("No personnel data found.")
             return
         
-        # Convert to DataFrame for easier analysis
+        # Convert to DataFrame for easier analysis with optimization
         import pandas as pd
         df = pd.DataFrame(all_personnel)
+        df = optimize_dataframe(df)  # Optimize memory usage
         
-        # Key Metrics Cards - Most Important Information First
-        col1, col2, col3, col4 = st.columns(4)
+        # Key Metrics Section
+        st.subheader("📊 Overall Status")
         
         total_personnel = len(df)
         current_count = len(df[df['currency_status'].str.upper() == 'YES'])
@@ -900,96 +1750,114 @@ def admin_team_dashboard(sheets_manager):
         except:
             expiring_soon = 0
         
+        # Vehicle breakdown
+        terrex_personnel = df[df['vehicle_type'] == 'Terrex']
+        belrex_personnel = df[df['vehicle_type'] == 'Belrex']
+        terrex_current = len(terrex_personnel[terrex_personnel['currency_status'].str.upper() == 'YES'])
+        belrex_current = len(belrex_personnel[belrex_personnel['currency_status'].str.upper() == 'YES'])
+        
+        # Display metrics in improved grid layout
+        st.markdown("""
+        <div class="metrics-container">
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4, gap="medium")
+        
         with col1:
             current_rate = (current_count/total_personnel*100) if total_personnel > 0 else 0
             st.markdown(f"""
-            <div class="metric-card-current">
-                <h2>✅ {current_count}</h2>
-                <p>Current Personnel</p>
-                <small>{current_rate:.1f}% of {total_personnel}</small>
+            <div class="metric-wrapper">
+                <div class="metric-card-current">
+                    <h2>✅ {current_count}</h2>
+                    <p>Current Personnel</p>
+                    <small>{current_rate:.1f}% of {total_personnel}</small>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             not_current_rate = (not_current_count/total_personnel*100) if total_personnel > 0 else 0
             st.markdown(f"""
-            <div class="metric-card-expired">
-                <h2>❌ {not_current_count}</h2>
-                <p>Not Current</p>
-                <small>{not_current_rate:.1f}% need drives</small>
+            <div class="metric-wrapper">
+                <div class="metric-card-expired">
+                    <h2>❌ {not_current_count}</h2>
+                    <p>Not Current</p>
+                    <small>{not_current_rate:.1f}% need drives</small>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
         with col3:
             st.markdown(f"""
-            <div class="metric-card-expiring">
-                <h2>⚠️ {expiring_soon}</h2>
-                <p>Expiring Soon</p>
-                <small>Within 14 days</small>
+            <div class="metric-wrapper">
+                <div class="metric-card-expiring">
+                    <h2>⚠️ {expiring_soon}</h2>
+                    <p>Expiring Soon</p>
+                    <small>Within 14 days</small>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col4:
+            st.markdown(f"""
+            <div class="metric-wrapper">
+                <div class="metric-card-vehicles">
+                    <h2>🚛 {terrex_current}/{len(terrex_personnel)}</h2>
+                    <p>🚗 {belrex_current}/{len(belrex_personnel)}</p>
+                    <small>Current/Total by Vehicle</small>
+                </div>
             </div>
             """, unsafe_allow_html=True)
         
-        with col4:
-            terrex_personnel = df[df['vehicle_type'] == 'Terrex']
-            belrex_personnel = df[df['vehicle_type'] == 'Belrex']
-            terrex_current = len(terrex_personnel[terrex_personnel['currency_status'].str.upper() == 'YES'])
-            belrex_current = len(belrex_personnel[belrex_personnel['currency_status'].str.upper() == 'YES'])
-            
-            st.markdown(f"""
-            <div class="metric-card-vehicles">
-                <h3>🚛 Terrex: {terrex_current}/{len(terrex_personnel)}</h3>
-                <h3>🚗 Belrex: {belrex_current}/{len(belrex_personnel)}</h3>
-                <small>Current/Total</small>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         
         st.markdown("---")
         
-        # Critical Actions Section - Clean and Prominent
+        # Critical Actions Section
+        st.subheader("🚨 Priority Actions")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("### 🚨 Immediate Action Required")
+            st.markdown("#### Immediate Action Required")
             not_current = df[df['currency_status'].str.upper() == 'NO']
             if len(not_current) > 0:
-                with st.container():
-                    for _, person in not_current.head(10).iterrows():  # Limit to 10 for cleaner display
-                        st.markdown(f"""
-                        <div class="action-item-critical">
-                            <strong>{person['rank']} {person['name']}</strong><br>
-                            <small>{person['vehicle_type']} • {person['distance_3_months']:.1f} KM (3mo)</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    if len(not_current) > 10:
-                        st.info(f"... and {len(not_current) - 10} more personnel")
+                for _, person in not_current.head(8).iterrows():  # Limit for better display
+                    st.markdown(f"""
+                    <div class="action-item-critical">
+                        <strong>{person['rank']} {person['name']}</strong><br>
+                        <small>{person['vehicle_type']} • {person['distance_3_months']:.1f} KM (3mo)</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+                if len(not_current) > 8:
+                    st.info(f"... and {len(not_current) - 8} more personnel need drives")
             else:
-                st.success("🎉 All personnel are current!")
+                st.success("All personnel are current!")
         
         with col2:
-            st.markdown("### ⏰ Expiring Within 14 Days")
+            st.markdown("#### Expiring Within 14 Days")
             try:
                 expiring = df[(df['currency_status'].str.upper() == 'YES') & (df['days_to_expiry_num'] <= 14)]
                 if len(expiring) > 0:
-                    with st.container():
-                        for _, person in expiring.head(10).iterrows():
-                            days_left = int(person['days_to_expiry_num']) if pd.notna(person['days_to_expiry_num']) else 0
-                            st.markdown(f"""
-                            <div class="action-item-warning">
-                                <strong>{person['rank']} {person['name']}</strong><br>
-                                <small>{person['vehicle_type']} • Expires in {days_left} days</small>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        if len(expiring) > 10:
-                            st.info(f"... and {len(expiring) - 10} more expiring")
+                    for _, person in expiring.head(8).iterrows():
+                        days_left = int(person['days_to_expiry_num']) if pd.notna(person['days_to_expiry_num']) else 0
+                        st.markdown(f"""
+                        <div class="action-item-warning">
+                            <strong>{person['rank']} {person['name']}</strong><br>
+                            <small>{person['vehicle_type']} • Expires in {days_left} days</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    if len(expiring) > 8:
+                        st.info(f"... and {len(expiring) - 8} more expiring soon")
                 else:
-                    st.success("✅ No immediate expirations")
+                    st.success("No immediate expirations")
             except:
                 st.info("No expiration data available")
         
         st.markdown("---")
         
-        # Platoon Status - Dropdown Expand Design
-        st.markdown("### 🏢 Platoon Overview")
+        # Platoon Status Section
+        st.subheader("🏢 Platoon Overview")
         
         # Group by platoon
         platoon_groups = df.groupby('platoon').agg({
@@ -1064,9 +1932,8 @@ def admin_team_dashboard(sheets_manager):
                 
                 st.dataframe(display_df, use_container_width=True, height=200)
         
-        # Quick Personnel Search & Filter
-        st.markdown("---")
-        st.markdown("### 🔍 Personnel Search")
+        # Personnel Search Section
+        st.subheader("🔍 Personnel Search")
         
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
@@ -1092,16 +1959,17 @@ def admin_team_dashboard(sheets_manager):
         if vehicle_filter != "All":
             filtered_df = filtered_df[filtered_df['vehicle_type'] == vehicle_filter]
         
-        # Filtered results table
+        # Display filtered results
         if len(filtered_df) > 0:
-            st.markdown(f"**{len(filtered_df)} personnel found**")
+            st.markdown(f"**Found {len(filtered_df)} personnel**")
             
             display_cols = ['rank', 'name', 'platoon', 'vehicle_type', 'currency_status', 'distance_3_months', 'days_to_expiry']
             table_df = filtered_df[display_cols].copy()
             table_df.columns = ['Rank', 'Name', 'Platoon', 'Vehicle', 'Status', '3-Month KM', 'Days to Expiry']
             
-            # Ensure 'Days to Expiry' column is treated as string to avoid Arrow serialization errors
+            # Clean up data types for display
             table_df['Days to Expiry'] = table_df['Days to Expiry'].astype(str)
+            table_df['3-Month KM'] = pd.to_numeric(table_df['3-Month KM'], errors='coerce').fillna(0).round(1)
             
             st.dataframe(table_df, use_container_width=True, height=400)
         else:
@@ -1109,6 +1977,439 @@ def admin_team_dashboard(sheets_manager):
             
     except Exception as e:
         st.error(f"Error loading team dashboard: {str(e)}")
+
+def fitness_team_overview(sheets_manager):
+    """Team overview for fitness progress"""
+    try:
+        st.subheader("💪 Strength & Power Programme Overview")
+        
+        # Get fitness data from all personnel
+        @session_cache(ttl=600)  # 10 minute session cache
+        def get_cached_fitness_data():
+            return get_all_fitness_data(sheets_manager)
+        
+        fitness_data = get_cached_fitness_data()
+        
+        if not fitness_data:
+            st.warning("No S&P programme data found.")
+            return
+        
+        # Convert to DataFrame for analysis
+        import pandas as pd
+        df = pd.DataFrame(fitness_data)
+        df = optimize_dataframe(df)
+        
+        # S&P Progress Overview Section
+        st.subheader("📊 S&P Progress Overview")
+        
+        total_personnel = len(df)
+        active_personnel = len(df[df['recent_workouts'] > 0])
+        improving_personnel = len(df[df['progress_trend'] == 'improving']) if 'progress_trend' in df.columns else 0
+        avg_sessions = df['recent_workouts'].mean() if total_personnel > 0 else 0
+        
+        # Display progress metrics in improved grid layout
+        st.markdown("""
+        <div class="metrics-container">
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3, col4 = st.columns(4, gap="medium")
+        
+        with col1:
+            active_rate = (active_personnel/total_personnel*100) if total_personnel > 0 else 0
+            st.markdown(f"""
+            <div class="metric-wrapper">
+                <div class="metric-card-current">
+                    <h2>💪 {active_personnel}</h2>
+                    <p>Active Training</p>
+                    <small>{active_rate:.1f}% of {total_personnel}</small>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            if 'progress_trend' in df.columns:
+                improving_rate = (improving_personnel/total_personnel*100) if total_personnel > 0 else 0
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-current">
+                        <h2>📈 {improving_personnel}</h2>
+                        <p>Showing Progress</p>
+                        <small>{improving_rate:.1f}% improving</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                total_sessions = df['recent_workouts'].sum()
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-expiring">
+                        <h2>🏋️ {total_sessions}</h2>
+                        <p>Total Sessions</p>
+                        <small>Team effort</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with col3:
+            if 'avg_weight_increase' in df.columns:
+                avg_weight_increase = df['avg_weight_increase'].mean()
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-vehicles">
+                        <h2>⬆️ {avg_weight_increase:.1f}kg</h2>
+                        <p>Avg Weight Gain</p>
+                        <small>Last 30 days</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-expiring">
+                        <h2>📊 {avg_sessions:.1f}</h2>
+                        <p>Avg Sessions</p>
+                        <small>Last 30 days</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        with col4:
+            if 'personal_records' in df.columns:
+                total_prs = df['personal_records'].sum()
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-current">
+                        <h2>🏆 {total_prs}</h2>
+                        <p>Personal Records</p>
+                        <small>This month</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                total_sessions = df['recent_workouts'].sum()
+                st.markdown(f"""
+                <div class="metric-wrapper">
+                    <div class="metric-card-vehicles">
+                        <h2>🏋️ {total_sessions}</h2>
+                        <p>Total Sessions</p>
+                        <small>Programme progress</small>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+        
+        # Progress Highlights
+        st.subheader("🎯 Progress Highlights")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Strength Gainers")
+            if 'max_weight_lifted' in df.columns:
+                strength_gainers = df.nlargest(8, 'max_weight_lifted')
+                if len(strength_gainers) > 0:
+                    for _, person in strength_gainers.iterrows():
+                        if person['max_weight_lifted'] > 0:
+                            progress_indicator = ""
+                            if 'weight_increase' in df.columns and person['weight_increase'] > 0:
+                                progress_indicator = f" (+{person['weight_increase']:.1f}kg)"
+                            st.markdown(f"""
+                            <div class="action-item-warning" style="background-color: #d4edda; color: #155724; border-left: 4px solid #28a745;">
+                                <strong>{person['rank']} {person['name']}</strong><br>
+                                <small>Max: {person['max_weight_lifted']:.1f}kg{progress_indicator}</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("No strength data available")
+            else:
+                # Fallback to session count
+                top_performers = df.nlargest(8, 'recent_workouts')
+                if len(top_performers) > 0:
+                    for _, person in top_performers.iterrows():
+                        if person['recent_workouts'] > 0:
+                            st.markdown(f"""
+                            <div class="action-item-warning" style="background-color: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8;">
+                                <strong>{person['rank']} {person['name']}</strong><br>
+                                <small>{person['recent_workouts']} sessions completed</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("No session data available")
+        
+        with col2:
+            st.markdown("#### Personal Records")
+            if 'recent_prs' in df.columns:
+                pr_leaders = df.nlargest(8, 'recent_prs')
+                if len(pr_leaders) > 0:
+                    for _, person in pr_leaders.iterrows():
+                        if person['recent_prs'] > 0:
+                            st.markdown(f"""
+                            <div class="action-item-warning" style="background-color: #fff3cd; color: #856404; border-left: 4px solid #ffc107;">
+                                <strong>{person['rank']} {person['name']}</strong><br>
+                                <small>{person['recent_prs']} PRs this month</small>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.info("No recent personal records")
+            else:
+                # Show personnel needing attention
+                st.markdown("#### Needs Support")
+                inactive = df[df['recent_workouts'] == 0]
+                if len(inactive) > 0:
+                    for _, person in inactive.head(8).iterrows():
+                        st.markdown(f"""
+                        <div class="action-item-critical">
+                            <strong>{person['rank']} {person['name']}</strong><br>
+                            <small>No recent training sessions</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    if len(inactive) > 8:
+                        st.info(f"... and {len(inactive) - 8} more need support")
+                else:
+                    st.success("Everyone is actively training!")
+        
+        st.markdown("---")
+        
+        # Platoon Progress Breakdown
+        st.subheader("🏢 Platoon Progress Breakdown")
+        
+        # Group by platoon
+        if 'platoon' in df.columns:
+            agg_dict = {
+                'recent_workouts': ['count', 'sum', 'mean'],
+                'username': 'count'
+            }
+            if 'max_weight_lifted' in df.columns:
+                agg_dict['max_weight_lifted'] = 'mean'
+            if 'recent_prs' in df.columns:
+                agg_dict['recent_prs'] = 'sum'
+                
+            platoon_groups = df.groupby('platoon').agg(agg_dict).reset_index()
+            
+            # Flatten column names
+            platoon_groups.columns = ['Platoon', 'Active_Count', 'Total_Sessions', 'Avg_Sessions', 'Total_Personnel'] + \
+                                   (['Avg_Max_Weight'] if 'max_weight_lifted' in df.columns else []) + \
+                                   (['Total_PRs'] if 'recent_prs' in df.columns else [])
+            
+            # Display each platoon
+            for _, platoon in platoon_groups.iterrows():
+                avg_sessions = platoon['Avg_Sessions']
+                active_rate = (platoon['Active_Count'] / platoon['Total_Personnel'] * 100) if platoon['Total_Personnel'] > 0 else 0
+                
+                # Determine progress status
+                if avg_sessions >= 8:
+                    status_emoji = "🔥"
+                    status_text = "Excellent Progress"
+                elif avg_sessions >= 4:
+                    status_emoji = "💪"
+                    status_text = "Good Progress"
+                else:
+                    status_emoji = "📈"
+                    status_text = "Building Momentum"
+                
+                # Add progress indicators if available
+                progress_info = f"{platoon['Total_Sessions']} total sessions ({avg_sessions:.1f} avg)"
+                if 'Avg_Max_Weight' in platoon_groups.columns:
+                    progress_info += f" | Avg Max: {platoon['Avg_Max_Weight']:.1f}kg"
+                if 'Total_PRs' in platoon_groups.columns:
+                    progress_info += f" | {platoon['Total_PRs']} PRs"
+                
+                with st.expander(f"{status_emoji} **{platoon['Platoon']}** - {progress_info} - {status_text}", expanded=False):
+                    # Get personnel for this platoon
+                    platoon_personnel = df[df['platoon'] == platoon['Platoon']]
+                    
+                    # Quick stats
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Personnel", len(platoon_personnel))
+                    with col2:
+                        active_count = len(platoon_personnel[platoon_personnel['recent_workouts'] > 0])
+                        st.metric("Active", active_count)
+                    with col3:
+                        st.metric("Total Sessions", int(platoon['Total_Sessions']))
+                    with col4:
+                        if 'Total_PRs' in platoon_groups.columns:
+                            st.metric("Personal Records", int(platoon['Total_PRs']))
+                        else:
+                            st.metric("Avg Sessions", f"{avg_sessions:.1f}")
+                    
+                    # Personnel table for this platoon with progress focus
+                    st.markdown("**📋 Platoon Progress Status:**")
+                    display_cols = ['rank', 'name', 'recent_workouts', 'last_workout_date']
+                    if 'max_weight_lifted' in platoon_personnel.columns:
+                        display_cols.append('max_weight_lifted')
+                    if 'recent_prs' in platoon_personnel.columns:
+                        display_cols.append('recent_prs')
+                    
+                    available_cols = [col for col in display_cols if col in platoon_personnel.columns]
+                    if available_cols:
+                        display_df = platoon_personnel[available_cols].copy()
+                        col_names = ['Rank', 'Name', '30-Day Sessions', 'Last Session']
+                        if 'max_weight_lifted' in available_cols:
+                            col_names.append('Max Weight')
+                        if 'recent_prs' in available_cols:
+                            col_names.append('Recent PRs')
+                        display_df.columns = col_names[:len(available_cols)]
+                        display_df = display_df.sort_values('30-Day Sessions', ascending=False)
+                        st.dataframe(display_df, use_container_width=True, height=200)
+        
+        # Personnel Progress Search
+        st.subheader("🔍 Progress Search")
+        
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            search_term = st.text_input("Search by name:", placeholder="Type name to search...", key="fitness_search")
+        with col2:
+            progress_filter = st.selectbox("Progress Status:", ["All", "Active", "High Performers", "Need Support"], key="fitness_progress")
+        with col3:
+            min_sessions = st.number_input("Min Sessions:", min_value=0, value=0, key="fitness_min_sessions")
+        
+        # Apply filters
+        filtered_df = df.copy()
+        if search_term:
+            filtered_df = filtered_df[
+                filtered_df['name'].str.contains(search_term, case=False, na=False) |
+                filtered_df['username'].str.contains(search_term, case=False, na=False)
+            ]
+        
+        if progress_filter == "Active":
+            filtered_df = filtered_df[filtered_df['recent_workouts'] > 0]
+        elif progress_filter == "High Performers":
+            # Top 25% by session count
+            threshold = filtered_df['recent_workouts'].quantile(0.75) if len(filtered_df) > 0 else 0
+            filtered_df = filtered_df[filtered_df['recent_workouts'] >= threshold]
+        elif progress_filter == "Need Support":
+            filtered_df = filtered_df[filtered_df['recent_workouts'] == 0]
+        
+        if min_sessions > 0:
+            filtered_df = filtered_df[filtered_df['recent_workouts'] >= min_sessions]
+        
+        # Display filtered results
+        if len(filtered_df) > 0:
+            st.markdown(f"**Found {len(filtered_df)} personnel**")
+            
+            display_cols = ['rank', 'name', 'platoon', 'recent_workouts', 'last_workout_date']
+            if 'max_weight_lifted' in filtered_df.columns:
+                display_cols.append('max_weight_lifted')
+            if 'recent_prs' in filtered_df.columns:
+                display_cols.append('recent_prs')
+            
+            available_cols = [col for col in display_cols if col in filtered_df.columns]
+            if available_cols:
+                table_df = filtered_df[available_cols].copy()
+                col_names = ['Rank', 'Name', 'Platoon', '30-Day Sessions', 'Last Session']
+                if 'max_weight_lifted' in available_cols:
+                    col_names.append('Max Weight (kg)')
+                if 'recent_prs' in available_cols:
+                    col_names.append('Recent PRs')
+                table_df.columns = col_names[:len(available_cols)]
+                table_df = table_df.sort_values('30-Day Sessions', ascending=False)
+                st.dataframe(table_df, use_container_width=True)
+        else:
+            st.info("No personnel found matching the criteria.")
+            
+    except Exception as e:
+        st.error(f"Error loading fitness team overview: {str(e)}")
+
+def get_all_fitness_data(sheets_manager):
+    """Get fitness data for all personnel with progress tracking"""
+    try:
+        # Get fitness worksheet
+        try:
+            fitness_sheet = sheets_manager.spreadsheet.worksheet('Fitness_Tracker')
+            fitness_records = fitness_sheet.get_all_records()
+        except:
+            return []
+        
+        # Get personnel qualifications for names and ranks
+        personnel_data = []
+        
+        # Group fitness data by username and calculate stats
+        from collections import defaultdict
+        user_workouts = defaultdict(list)
+        
+        for record in fitness_records:
+            username = record.get('Username', '').strip()
+            if username:
+                user_workouts[username].append(record)
+        
+        # Calculate fitness metrics for each user
+        for username, workouts in user_workouts.items():
+            # Get user qualifications for rank and name
+            user_quals = sheets_manager.check_user_qualifications(username)
+            
+            # Calculate recent workouts (last 30 days)
+            from datetime import datetime, timedelta
+            thirty_days_ago = datetime.now() - timedelta(days=30)
+            recent_workouts = 0
+            last_workout_date = "Never"
+            max_weight_lifted = 0
+            recent_prs = 0
+            weight_progression = []
+            
+            for workout in workouts:
+                try:
+                    workout_date_str = workout.get('Date', '')
+                    if workout_date_str:
+                        workout_date = datetime.strptime(workout_date_str, '%Y-%m-%d')
+                        
+                        # Track recent activity
+                        if workout_date >= thirty_days_ago:
+                            recent_workouts += 1
+                            
+                            # Track weight progression
+                            try:
+                                weight = float(workout.get('Weight', 0) or 0)
+                                if weight > 0:
+                                    weight_progression.append(weight)
+                                    max_weight_lifted = max(max_weight_lifted, weight)
+                            except:
+                                pass
+                            
+                            # Count personal records (simplified: any workout with weight > previous max)
+                            if weight > max_weight_lifted * 0.95:  # Within 5% counts as potential PR
+                                recent_prs += 1
+                        
+                        # Track most recent workout
+                        if last_workout_date == "Never" or workout_date > datetime.strptime(last_workout_date, '%Y-%m-%d'):
+                            last_workout_date = workout_date_str
+                except:
+                    continue
+            
+            # Calculate weight increase trend
+            weight_increase = 0
+            progress_trend = 'stable'
+            if len(weight_progression) >= 2:
+                weight_increase = weight_progression[-1] - weight_progression[0]
+                if weight_increase > 2:
+                    progress_trend = 'improving'
+                elif weight_increase < -2:
+                    progress_trend = 'declining'
+            
+            personnel_data.append({
+                'username': username,
+                'name': user_quals.get('full_name', username),
+                'rank': user_quals.get('rank', ''),
+                'platoon': user_quals.get('platoon', 'Unknown'),
+                'recent_workouts': recent_workouts,
+                'total_workouts': len(workouts),
+                'last_workout_date': last_workout_date,
+                'max_weight_lifted': max_weight_lifted,
+                'recent_prs': recent_prs,
+                'weight_increase': weight_increase,
+                'progress_trend': progress_trend,
+                'avg_weight_increase': weight_increase,
+                'personal_records': recent_prs
+            })
+        
+        return personnel_data
+        
+    except Exception as e:
+        print(f"Error getting fitness data: {e}")
+        return []
 
 def log_mileage_tab(sheets_manager):
     """Mileage logging interface"""
@@ -1618,6 +2919,7 @@ def account_management_tab(sheets_manager):
             
     except Exception as e:
         st.error(f"Error in account management: {str(e)}")
+
 
 def change_password_tab():
     """Password change interface"""

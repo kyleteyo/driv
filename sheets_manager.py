@@ -88,24 +88,51 @@ class SheetsManager:
             self.belrex_worksheet = self.spreadsheet.add_worksheet(title='Belrex Tracker (MSP5)', rows=1000, cols=6)
             headers = ['Username', 'Last_Drive_Date', 'Total_Distance_3_Months', 'Currency_Maintained', 'Currency_Expiry_Date', 'Last_Updated']
             self.belrex_worksheet.append_row(headers)
+            
+        # Setup User Management worksheet - preserve existing data
+        try:
+            self.user_management_worksheet = self.spreadsheet.worksheet('User_Management')
+        except gspread.WorksheetNotFound:
+            # Create User_Management worksheet only if it doesn't exist
+            self.user_management_worksheet = self.spreadsheet.add_worksheet(title='User_Management', rows=1000, cols=3)
+            headers = ['Username', 'Is_Commander', 'Is_Admin']
+            self.user_management_worksheet.append_row(headers)
+            
+            # Add default accounts with simplified structure
+            default_accounts = [
+                ['trooper1', 'FALSE', 'FALSE'],
+                ['trooper2', 'FALSE', 'FALSE'],
+                ['commander', 'TRUE', 'FALSE']
+            ]
+            for account_row in default_accounts:
+                self.user_management_worksheet.append_row(account_row)
     
-    @st.cache_data(ttl=7200, show_spinner=False)  # 2 hour cache for qualifications
+    @st.cache_data(ttl=900, show_spinner=False)  # 15 minute cache for qualifications (balanced performance)
     def check_user_qualifications(_self, username):
         """Check if user is qualified for Terrex and/or Belrex based on presence in tracker sheets"""
         qualifications = {'terrex': False, 'belrex': False, 'full_name': '', 'rank': '', 'is_admin': False}
         
-        # Check if user is admin
-        is_admin = _self.is_admin_user(username)
+        # Check if user is admin and commander from User Management sheet
+        user_management = _self.get_user_management_info(username)
+        is_admin = user_management.get('is_admin', False)
+        is_commander = user_management.get('is_commander', False)
         qualifications['is_admin'] = is_admin
+        qualifications['is_commander'] = is_commander
         
-        # Special handling for admin/test accounts
-        admin_accounts = ['admin', 'trooper1', 'trooper2', 'commander']
-        if username in admin_accounts:
-            # Admin accounts get full qualification and display names
+        # Special handling for built-in accounts
+        if username == 'admin':
+            # Admin gets full qualification and display names
+            qualifications['terrex'] = True
+            qualifications['belrex'] = True
+            qualifications['full_name'] = 'ADMIN'
+            qualifications['rank'] = 'ADMIN'
+            return qualifications
+        elif username in ['trooper1', 'trooper2', 'commander']:
+            # Test accounts get full qualification and display names
             qualifications['terrex'] = True
             qualifications['belrex'] = True
             qualifications['full_name'] = username.upper()
-            qualifications['rank'] = 'ADMIN' if username == 'admin' else 'TEST'
+            qualifications['rank'] = 'CDR' if username == 'commander' else 'TPR'
             return qualifications
         
         try:
@@ -287,37 +314,37 @@ class SheetsManager:
             # Try to access safety infographics sheet
             try:
                 safety_sheet = self.spreadsheet.worksheet('Safety_Infographics')
-                # Get existing headers first
+                
+                # Define expected headers to handle duplicates
+                expected_headers = ['Title', 'Image_URL', 'Submitter', 'Date', 'Storage_Size', 'File_Type']
+                
                 try:
-                    records = safety_sheet.get_all_records()
+                    records = safety_sheet.get_all_records(expected_headers=expected_headers)
                 except:
-                    # If sheet has issues, get all values and parse manually
+                    # Fallback: get all values and create records manually
                     all_values = safety_sheet.get_all_values()
+                    records = []
                     if len(all_values) > 1:
-                        headers = all_values[0]
-                        records = []
                         for row in all_values[1:]:
                             record = {}
-                            for i, header in enumerate(headers):
+                            for i, header in enumerate(expected_headers):
                                 if i < len(row):
                                     record[header] = row[i]
+                                else:
+                                    record[header] = ''
                             records.append(record)
-                    else:
-                        records = []
                 
                 # Sort by date (newest first) if records exist
                 if records:
                     try:
-                        # Sort by Date in descending order (newest first)
                         records = sorted(records, key=lambda x: x.get('Date', ''), reverse=True)
                     except Exception as sort_error:
                         print(f"Warning: Could not sort infographics by date: {sort_error}")
-                        # Return records in reverse order as fallback (newest at top)
                         records = list(reversed(records))
                 
                 return records
             except Exception as sheet_error:
-                print(f"Safety_Infographics sheet error: {sheet_error}")
+                print(f"Safety_Infographics sheet not found: {sheet_error}")
                 return []
             
         except Exception as e:
@@ -511,7 +538,7 @@ class SheetsManager:
         except Exception as e:
             raise Exception(f"Failed to get user data: {str(e)}")
     
-    @st.cache_data(ttl=3600, show_spinner=False)  # 1 hour cache  
+    @st.cache_data(ttl=900, show_spinner=False)  # 15 minute cache for personnel status (faster updates)
     def get_all_personnel_status(_self):
         """Get currency status for all personnel across both vehicle types"""
         try:
@@ -677,27 +704,95 @@ class SheetsManager:
         except Exception as e:
             return username
     
-    def is_admin_user(self, username):
-        """Check if user has admin privileges"""
-        # Main admin always has privileges
-        if username == 'admin':
-            return True
-        
-        # Check credentials file for admin status
+    @st.cache_data(ttl=300, show_spinner=False)  # 5 minute cache for user management (balanced)
+    def get_user_management_info(_self, username):
+        """Get user management information from User_Management worksheet"""
         try:
-            import json
-            with open('credentials.json', 'r') as f:
-                credentials = json.load(f)
+            user_management_data = _self.user_management_worksheet.get_all_records()
+            for user_record in user_management_data:
+                if user_record.get('Username', '').lower() == username.lower():
+                    return {
+                        'is_admin': user_record.get('Is_Admin', '').upper() == 'TRUE',
+                        'is_commander': user_record.get('Is_Commander', '').upper() == 'TRUE'
+                    }
+        except Exception as e:
+            print(f"Error getting user management info: {e}")
             
-            user_details = credentials.get(username)
-            if isinstance(user_details, dict):
-                return user_details.get('is_admin', False)
-            else:
-                # Legacy accounts
-                return username in ['trooper1', 'trooper2', 'commander']
-        except:
-            # Fallback to legacy list
-            return username in ['trooper1', 'trooper2', 'commander']
+        # Fallback to default accounts if not found in sheet
+        # Only admin has admin privileges, others are troopers or commanders
+        if username == 'admin':
+            return {
+                'is_admin': True,
+                'is_commander': False
+            }
+        elif username == 'commander':
+            return {
+                'is_admin': False,
+                'is_commander': True
+            }
+        elif username in ['trooper1', 'trooper2']:
+            return {
+                'is_admin': False,
+                'is_commander': False
+            }
+            
+        return {'is_admin': False, 'is_commander': False}
+    
+    def is_admin_user(self, username):
+        """Check if user is an admin (has administrative privileges)"""
+        user_info = self.get_user_management_info(username)
+        return user_info.get('is_admin', False)
+    
+    def is_commander_user(self, username):
+        """Check if user is a commander (has commander privileges)"""
+        user_info = self.get_user_management_info(username)
+        return user_info.get('is_commander', False)
+    
+    def update_user_permissions(self, username, is_admin=None, is_commander=None):
+        """Update user permissions in User_Management worksheet"""
+        try:
+            # Clear cache when updating permissions for immediate effect
+            st.cache_data.clear()
+            user_management_data = self.user_management_worksheet.get_all_records()
+            user_found = False
+            
+            # Look for existing user
+            for i, user_record in enumerate(user_management_data):
+                if user_record.get('Username', '').lower() == username.lower():
+                    # Update existing user
+                    row_index = i + 2  # +2 because sheet is 1-indexed and has header
+                    
+                    if is_admin is not None:
+                        self.user_management_worksheet.update_cell(row_index, 3, 'TRUE' if is_admin else 'FALSE')
+                    if is_commander is not None:
+                        self.user_management_worksheet.update_cell(row_index, 2, 'TRUE' if is_commander else 'FALSE')
+                    
+
+                    user_found = True
+                    break
+            
+            # If user not found, add new user
+            if not user_found:
+                new_row = [
+                    username,
+                    'TRUE' if is_commander else 'FALSE',
+                    'TRUE' if is_admin else 'FALSE'
+                ]
+                self.user_management_worksheet.append_row(new_row)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error updating user permissions: {e}")
+            return False
+    
+    def get_all_user_permissions(self):
+        """Get all user permissions from User_Management worksheet"""
+        try:
+            return self.user_management_worksheet.get_all_records()
+        except Exception as e:
+            print(f"Error getting all user permissions: {e}")
+            return []
     
     @st.cache_data(ttl=7200, show_spinner=False)  # 2 hour cache
     def get_user_tracker_data(_self, username):
