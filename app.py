@@ -24,8 +24,7 @@ if "app_configured" not in st.session_state:
     st._config.set_option('server.enableCORS', True)
     st._config.set_option('server.enableXsrfProtection', True)
     
-    # Session persistence settings
-    st._config.set_option('server.sessionTimeout', 7200)  # 2 hours timeout
+    # Session persistence settings - using browser storage instead of server config
     st._config.set_option('server.enableStaticServing', True)
     
     st.session_state.app_configured = True
