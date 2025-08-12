@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import time
+import hashlib
 from auth import authenticate_user, change_password, get_user_info
 from sheets_manager import SheetsManager
 from utils import calculate_currency_status, format_status_badge
@@ -157,9 +158,10 @@ def safe_user_initialization():
     except Exception as e:
         print(f"User initialization error: {e}")
 
-# Call safe initialization once per app startup
+# DISABLED: Safe initialization to prevent password resets during uploads
+# Users are now manually managed to preserve custom passwords
 if 'users_initialized' not in st.session_state:
-    safe_user_initialization()
+    print("User initialization disabled to prevent password resets")
     st.session_state.users_initialized = True
 
 
