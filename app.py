@@ -157,11 +157,22 @@ def safe_user_initialization():
     except Exception as e:
         print(f"User initialization error: {e}")
 
-# DISABLED: Safe initialization to prevent password resets during uploads
-# Users are now manually managed to preserve custom passwords
-if 'users_initialized' not in st.session_state:
-    print("User initialization disabled to prevent password resets")
-    st.session_state.users_initialized = True
+# Auto-detect and restore credentials if they were reset during upload
+if 'credentials_checked' not in st.session_state:
+    try:
+        import subprocess
+        import os
+        if os.path.exists('credentials_protection.py'):
+            result = subprocess.run(['python', 'credentials_protection.py', 'auto'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                print("Credentials protection: Auto-check completed")
+            else:
+                print(f"Credentials protection warning: {result.stderr}")
+    except Exception as e:
+        print(f"Credentials protection error: {e}")
+    
+    st.session_state.credentials_checked = True
 
 
 
@@ -315,26 +326,18 @@ def login_page():
                 st.session_state.username = username
                 st.session_state.login_time = time.time()
                 
-                if remember_me:
-                    # Create session token for persistence
-                    session_token = generate_session_token(username)
-                    # Store in browser localStorage for persistence across tabs/sessions
-                    st.components.v1.html(f"""
-                    <script>
-                    localStorage.setItem('msc_drivr_logged_in', 'true');
-                    localStorage.setItem('msc_drivr_username', '{username}');
-                    localStorage.setItem('msc_drivr_session_token', '{session_token}');
-                    localStorage.setItem('msc_drivr_login_time', '{int(time.time())}');
-                    </script>
-                    """, height=0)
-                else:
-                    # Use session storage (expires when tab closes)
-                    st.components.v1.html(f"""
-                    <script>
-                    sessionStorage.setItem('msc_drivr_logged_in', 'true');
-                    sessionStorage.setItem('msc_drivr_username', '{username}');
-                    </script>
-                    """, height=0)
+                # Always use localStorage for persistent sessions
+                session_token = generate_session_token(username)
+                st.components.v1.html(f"""
+                <script>
+                localStorage.setItem('msc_drivr_logged_in', 'true');
+                localStorage.setItem('msc_drivr_username', '{username}');
+                localStorage.setItem('msc_drivr_session_token', '{session_token}');
+                localStorage.setItem('msc_drivr_login_time', '{int(time.time())}');
+                sessionStorage.setItem('msc_drivr_logged_in', 'true');
+                sessionStorage.setItem('msc_drivr_username', '{username}');
+                </script>
+                """, height=0)
                 
                 st.success("Login successful!")
                 st.rerun()
@@ -3290,32 +3293,6 @@ def main():
     </style>
     """, unsafe_allow_html=True)
     
-    # Check for stored session on page load
-    if not st.session_state.logged_in:
-        # Try to restore session from browser storage
-        session_check = st.components.v1.html("""
-        <script>
-        const logged_in = sessionStorage.getItem('msc_drivr_logged_in');
-        const username = sessionStorage.getItem('msc_drivr_username');
-        if (logged_in === 'true' && username) {
-            window.parent.postMessage({
-                type: 'restore_session',
-                logged_in: true,
-                username: username
-            }, '*');
-        }
-        </script>
-        """, height=0)
-        
-        # Check if we received session restoration message
-        if 'restore_session' in st.session_state and st.session_state.restore_session:
-            stored_username = st.session_state.get('stored_username', '')
-            if stored_username and authenticate_user(stored_username, None, skip_password=True):
-                st.session_state.logged_in = True
-                st.session_state.username = stored_username
-                st.session_state.restore_session = False
-                st.rerun()
-    
     if not st.session_state.logged_in:
         login_page()
     else:
@@ -3323,48 +3300,42 @@ def main():
 
 def restore_session():
     """Restore user session from browser storage if available"""
-    # Check if there's a stored session
-    if not st.session_state.get('logged_in', False):
-        # Add JavaScript to check localStorage and return values
-        session_check = st.components.v1.html("""
-        <script>
-        const loggedIn = localStorage.getItem('msc_drivr_logged_in');
-        const username = localStorage.getItem('msc_drivr_username');
-        const sessionToken = localStorage.getItem('msc_drivr_session_token');
-        const loginTime = localStorage.getItem('msc_drivr_login_time');
+    if st.session_state.get('logged_in', False):
+        return True
+    
+    # Use a simpler approach with session state persistence
+    session_js = st.components.v1.html("""
+    <script>
+    const loggedIn = localStorage.getItem('msc_drivr_logged_in');
+    const username = localStorage.getItem('msc_drivr_username');
+    const sessionToken = localStorage.getItem('msc_drivr_session_token');
+    const loginTime = localStorage.getItem('msc_drivr_login_time');
+    
+    // Check if session is still valid (2 hours = 7200 seconds)
+    const currentTime = Math.floor(Date.now() / 1000);
+    const sessionValid = loginTime && (currentTime - parseInt(loginTime)) < 7200;
+    
+    if (loggedIn === 'true' && username && sessionValid) {
+        // Set a flag that Python can check
+        window.sessionRestoreData = {
+            username: username,
+            token: sessionToken,
+            valid: true
+        };
         
-        // Check if session is still valid (2 hours = 7200 seconds)
-        const currentTime = Math.floor(Date.now() / 1000);
-        const sessionValid = loginTime && (currentTime - parseInt(loginTime)) < 7200;
-        
-        if (loggedIn === 'true' && username && sessionToken && sessionValid) {
-            // Return session data to Python
-            const params = new URLSearchParams(window.location.search);
-            if (!params.get('restored_user')) {
-                params.set('restored_user', username);
-                params.set('restored_token', sessionToken);
-                window.location.search = params.toString();
-            }
+        // Also try to trigger a state update
+        if (window.parent && window.parent.streamlitRerun) {
+            window.parent.streamlitRerun();
         }
-        </script>
-        """, height=0)
-        
-        # Check URL parameters for restored session
-        query_params = st.query_params
-        if 'restored_user' in query_params and 'restored_token' in query_params:
-            username = query_params['restored_user']
-            session_token = query_params['restored_token']
-            
-            # Validate session token
-            if validate_session_token(username, session_token):
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.session_state.login_time = time.time()
-                
-                # Clear URL parameters after successful restore
-                st.query_params.clear()
-                st.success(f"Welcome back, {username}!")
-                return True
+    } else {
+        // Clear invalid session data
+        localStorage.removeItem('msc_drivr_logged_in');
+        localStorage.removeItem('msc_drivr_username');
+        localStorage.removeItem('msc_drivr_session_token');
+        localStorage.removeItem('msc_drivr_login_time');
+    }
+    </script>
+    """, height=0)
     
     return False
 
@@ -3385,7 +3356,8 @@ def main():
         st.session_state.logged_in = False
     
     # Try to restore session first
-    restore_session()
+    if not st.session_state.logged_in:
+        restore_session()
     
     # Smart high-load protection: Automatically detects and responds to high load
     if st.session_state.logged_in:

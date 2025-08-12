@@ -51,7 +51,9 @@ The application features a modular architecture with a clear separation of conce
 
 ## Password Management System
 
-- **Password Preservation**: Enhanced authentication system prevents password resets during app updates by safely initializing missing users without overwriting existing passwords.
-- **Backup Utility**: `password_backup.py` provides comprehensive backup, restore, and merge capabilities for `credentials.json`.
-- **Safe User Initialization**: App automatically adds new users from Google Sheets while preserving all existing user passwords.
-- **High-Load Performance**: Smart activation system automatically detects high concurrent usage (50+ users or 200+ requests) and enables protective rate limiting, then automatically disables when load decreases.
+- **Automatic Protection**: `credentials_protection.py` automatically detects and restores credentials reset during GitHub uploads
+- **Protected Backups**: System creates timestamped backups in `.credentials_backup/` directory before any operations
+- **Auto-Recovery**: On startup, automatically checks for password resets and restores from backup if needed
+- **Manual Tools**: `password_backup.py` provides manual backup, restore, and merge capabilities for `credentials.json`
+- **GitHub Upload Protection**: User initialization disabled to prevent automatic overwrites during code uploads
+- **Session Management**: 2-hour persistent sessions using browser localStorage with automatic restoration on app restart
