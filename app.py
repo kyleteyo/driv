@@ -23,6 +23,10 @@ if "app_configured" not in st.session_state:
     st._config.set_option('server.enableCORS', True)
     st._config.set_option('server.enableXsrfProtection', True)
     
+    # Session persistence settings
+    st._config.set_option('server.sessionTimeout', 7200)  # 2 hours timeout
+    st._config.set_option('server.enableStaticServing', True)
+    
     st.session_state.app_configured = True
 
 # High-load performance functions
@@ -143,6 +147,20 @@ def cleanup_session_memory():
 
 # Initialize high-load performance configuration
 configure_high_load_performance()
+
+# CRITICAL: Safely initialize missing users without overwriting existing passwords
+def safe_user_initialization():
+    """Ensure all users from Google Sheets exist without overwriting passwords"""
+    try:
+        from auth import safe_initialize_missing_users
+        safe_initialize_missing_users()
+    except Exception as e:
+        print(f"User initialization error: {e}")
+
+# Call safe initialization once per app startup
+if 'users_initialized' not in st.session_state:
+    safe_user_initialization()
+    st.session_state.users_initialized = True
 
 
 
@@ -288,17 +306,35 @@ def login_page():
         password = st.text_input("Password", type="password")
         submit_button = st.form_submit_button("Login")
         
+        remember_me = st.checkbox("Keep me logged in", value=True)
+        
         if submit_button:
             if authenticate_user(username, password):
                 st.session_state.logged_in = True
                 st.session_state.username = username
-                # Store session in browser storage
-                st.components.v1.html(f"""
-                <script>
-                sessionStorage.setItem('msc_drivr_logged_in', 'true');
-                sessionStorage.setItem('msc_drivr_username', '{username}');
-                </script>
-                """, height=0)
+                st.session_state.login_time = time.time()
+                
+                if remember_me:
+                    # Create session token for persistence
+                    session_token = generate_session_token(username)
+                    # Store in browser localStorage for persistence across tabs/sessions
+                    st.components.v1.html(f"""
+                    <script>
+                    localStorage.setItem('msc_drivr_logged_in', 'true');
+                    localStorage.setItem('msc_drivr_username', '{username}');
+                    localStorage.setItem('msc_drivr_session_token', '{session_token}');
+                    localStorage.setItem('msc_drivr_login_time', '{int(time.time())}');
+                    </script>
+                    """, height=0)
+                else:
+                    # Use session storage (expires when tab closes)
+                    st.components.v1.html(f"""
+                    <script>
+                    sessionStorage.setItem('msc_drivr_logged_in', 'true');
+                    sessionStorage.setItem('msc_drivr_username', '{username}');
+                    </script>
+                    """, height=0)
+                
                 st.success("Login successful!")
                 st.rerun()
             else:
@@ -414,6 +450,17 @@ def main_app():
         
         # Logout button at bottom
         if st.button("🚪 Logout", key="logout_btn"):
+            # Clear browser storage on logout
+            st.components.v1.html("""
+            <script>
+            localStorage.removeItem('msc_drivr_logged_in');
+            localStorage.removeItem('msc_drivr_username');
+            localStorage.removeItem('msc_drivr_session_token');
+            localStorage.removeItem('msc_drivr_login_time');
+            sessionStorage.clear();
+            </script>
+            """, height=0)
+            
             # Clear session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
@@ -3273,11 +3320,71 @@ def main():
     else:
         main_app()
 
+def restore_session():
+    """Restore user session from browser storage if available"""
+    # Check if there's a stored session
+    if not st.session_state.get('logged_in', False):
+        # Add JavaScript to check localStorage and return values
+        session_check = st.components.v1.html("""
+        <script>
+        const loggedIn = localStorage.getItem('msc_drivr_logged_in');
+        const username = localStorage.getItem('msc_drivr_username');
+        const sessionToken = localStorage.getItem('msc_drivr_session_token');
+        const loginTime = localStorage.getItem('msc_drivr_login_time');
+        
+        // Check if session is still valid (2 hours = 7200 seconds)
+        const currentTime = Math.floor(Date.now() / 1000);
+        const sessionValid = loginTime && (currentTime - parseInt(loginTime)) < 7200;
+        
+        if (loggedIn === 'true' && username && sessionToken && sessionValid) {
+            // Return session data to Python
+            const params = new URLSearchParams(window.location.search);
+            if (!params.get('restored_user')) {
+                params.set('restored_user', username);
+                params.set('restored_token', sessionToken);
+                window.location.search = params.toString();
+            }
+        }
+        </script>
+        """, height=0)
+        
+        # Check URL parameters for restored session
+        query_params = st.query_params
+        if 'restored_user' in query_params and 'restored_token' in query_params:
+            username = query_params['restored_user']
+            session_token = query_params['restored_token']
+            
+            # Validate session token
+            if validate_session_token(username, session_token):
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.session_state.login_time = time.time()
+                
+                # Clear URL parameters after successful restore
+                st.query_params.clear()
+                st.success(f"Welcome back, {username}!")
+                return True
+    
+    return False
+
+def validate_session_token(username, token):
+    """Simple session token validation"""
+    # Basic validation - in production, use proper JWT or secure tokens
+    expected_token = hashlib.sha256(f"{username}_session_salt".encode()).hexdigest()[:16]
+    return token == expected_token
+
+def generate_session_token(username):
+    """Generate a simple session token"""
+    return hashlib.sha256(f"{username}_session_salt".encode()).hexdigest()[:16]
+
 def main():
-    """Main application controller with high-load safeguards"""
+    """Main application controller with session persistence"""
     # Initialize session state
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
+    
+    # Try to restore session first
+    restore_session()
     
     # Smart high-load protection: Automatically detects and responds to high load
     if st.session_state.logged_in:
