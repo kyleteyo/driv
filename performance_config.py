@@ -126,3 +126,106 @@ def clear_all_caches():
         st.cache_data.clear()
     if hasattr(st, 'cache_resource'):
         st.cache_resource.clear()
+
+# High-load configuration for 90+ concurrent users
+HIGH_LOAD_CONFIG = {
+    'max_concurrent_users': 100,
+    'session_timeout': 180,  # 3 minutes
+    'cache_ttl': 120,  # 2 minutes for fast updates
+    'rate_limit_per_user': 3,  # requests per minute
+    'connection_pool_size': 5,  # Reduced Google Sheets connections
+    'batch_size': 5,  # Smaller batches for faster processing
+    'memory_limit_mb': 512,  # Memory limit per session
+}
+
+def configure_high_load_performance():
+    """Configure app for 90+ concurrent users"""
+    from collections import defaultdict
+    import time
+    
+    # Initialize rate limiting if not exists
+    if 'rate_limits' not in st.session_state:
+        st.session_state.rate_limits = defaultdict(list)
+    
+    # Configure reduced cache times for high load
+    global CACHE_TTL, MAX_CACHE_SIZE
+    CACHE_TTL = HIGH_LOAD_CONFIG['cache_ttl']
+    MAX_CACHE_SIZE = 50  # Reduced cache size
+    
+    # Memory cleanup
+    cleanup_session_memory()
+
+def check_rate_limit(user_id):
+    """Check if user exceeds rate limit - prevents system overload"""
+    import time
+    current_time = time.time()
+    
+    if 'rate_limits' not in st.session_state:
+        st.session_state.rate_limits = defaultdict(list)
+    
+    user_requests = st.session_state.rate_limits[user_id]
+    
+    # Remove old requests
+    user_requests[:] = [req_time for req_time in user_requests 
+                       if current_time - req_time < 60]  # 1 minute window
+    
+    if len(user_requests) >= HIGH_LOAD_CONFIG['rate_limit_per_user']:
+        return False
+    
+    user_requests.append(current_time)
+    return True
+
+def cleanup_session_memory():
+    """Aggressive memory cleanup for high-load scenarios"""
+    import sys
+    
+    # Clean expired cache entries more aggressively
+    if 'performance_cache' in st.session_state:
+        cache = st.session_state.performance_cache
+        current_time = time.time()
+        
+        expired_keys = [
+            key for key, data in cache.items()
+            if current_time - data.get('timestamp', 0) > HIGH_LOAD_CONFIG['cache_ttl']
+        ]
+        
+        for key in expired_keys:
+            del cache[key]
+    
+    # Limit session state size
+    session_size = sys.getsizeof(st.session_state)
+    if session_size > HIGH_LOAD_CONFIG['memory_limit_mb'] * 1024 * 1024:
+        # Clear large data structures
+        keys_to_remove = []
+        for key, value in st.session_state.items():
+            if sys.getsizeof(value) > 100000:  # 100KB
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove[:5]:  # Remove up to 5 large items
+            if key not in ['logged_in', 'username', 'current_page']:
+                del st.session_state[key]
+
+def monitor_app_health():
+    """Monitor app health and performance"""
+    import psutil
+    import time
+    
+    if 'health_check' not in st.session_state:
+        st.session_state.health_check = {'last_check': 0, 'alerts': []}
+    
+    current_time = time.time()
+    
+    # Check every 30 seconds
+    if current_time - st.session_state.health_check['last_check'] > 30:
+        try:
+            # Check memory usage
+            memory_percent = psutil.virtual_memory().percent
+            if memory_percent > 85:
+                cleanup_session_memory()
+                st.session_state.health_check['alerts'].append(
+                    f"High memory usage: {memory_percent}% - cleaned cache"
+                )
+            
+            st.session_state.health_check['last_check'] = current_time
+        except:
+            pass  # psutil might not be available

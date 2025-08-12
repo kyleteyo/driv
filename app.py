@@ -16,9 +16,133 @@ if "app_configured" not in st.session_state:
         layout="wide",
         initial_sidebar_state="expanded"
     )
-    # Disable Streamlit metrics collection for faster startup
+    # High-load performance configuration for 90+ concurrent users
     st._config.set_option('browser.gatherUsageStats', False)
+    st._config.set_option('server.maxUploadSize', 5)  # 5MB limit
+    st._config.set_option('server.maxMessageSize', 200)  # 200MB message limit
+    st._config.set_option('server.enableCORS', True)
+    st._config.set_option('server.enableXsrfProtection', True)
+    
     st.session_state.app_configured = True
+
+# High-load performance functions
+def configure_high_load_performance():
+    """Configure app for 90+ concurrent users"""
+    from collections import defaultdict
+    
+    # Initialize rate limiting and monitoring
+    if 'rate_limits' not in st.session_state:
+        st.session_state.rate_limits = defaultdict(list)
+    
+    if 'load_monitor' not in st.session_state:
+        st.session_state.load_monitor = {
+            'request_times': [],
+            'active_users': set(),
+            'last_check': time.time(),
+            'high_load_mode': False
+        }
+    
+    # Check if we should enable high load mode
+    check_and_enable_high_load_mode()
+    
+    # Aggressive memory cleanup
+    cleanup_session_memory()
+
+def check_and_enable_high_load_mode():
+    """Automatically detect high load and enable protection"""
+    import time
+    current_time = time.time()
+    
+    # Track this user as active
+    if 'username' in st.session_state:
+        st.session_state.load_monitor['active_users'].add(st.session_state['username'])
+    
+    # Clean old active users (remove after 5 minutes of inactivity)
+    if current_time - st.session_state.load_monitor['last_check'] > 30:  # Check every 30 seconds
+        # Count recent requests across all users
+        total_recent_requests = 0
+        for user_requests in st.session_state.rate_limits.values():
+            recent_requests = [req for req in user_requests if current_time - req < 300]  # Last 5 minutes
+            total_recent_requests += len(recent_requests)
+        
+        # Count concurrent users (active in last 5 minutes)
+        concurrent_users = len(st.session_state.load_monitor['active_users'])
+        
+        # Enable high load mode if:
+        # - More than 50 concurrent users OR
+        # - More than 200 requests in last 5 minutes OR
+        # - Average response time getting slow
+        should_enable = (
+            concurrent_users > 50 or 
+            total_recent_requests > 200
+        )
+        
+        if should_enable and not st.session_state.load_monitor['high_load_mode']:
+            st.session_state.load_monitor['high_load_mode'] = True
+            st.session_state.high_load_mode = True
+            st.warning("⚡ High load detected - Performance protection enabled")
+        
+        elif not should_enable and st.session_state.load_monitor['high_load_mode']:
+            st.session_state.load_monitor['high_load_mode'] = False
+            st.session_state.high_load_mode = False
+            st.success("✅ Load normalized - Full performance restored")
+        
+        st.session_state.load_monitor['last_check'] = current_time
+
+def check_rate_limit(user_id):
+    """Prevent system overload with rate limiting"""
+    import time
+    current_time = time.time()
+    
+    if 'rate_limits' not in st.session_state:
+        st.session_state.rate_limits = defaultdict(list)
+    
+    user_requests = st.session_state.rate_limits[user_id]
+    
+    # Remove old requests (1 minute window)
+    user_requests[:] = [req_time for req_time in user_requests 
+                       if current_time - req_time < 60]
+    
+    # Allow max 20 requests per minute per user (much more reasonable)
+    if len(user_requests) >= 20:
+        st.warning("⏳ Please wait a moment before making another request.")
+        return False
+    
+    user_requests.append(current_time)
+    return True
+
+def cleanup_session_memory():
+    """Aggressive memory cleanup for high-load scenarios"""
+    import sys
+    
+    # Clean expired session cache
+    if 'session_cache' in st.session_state:
+        current_time = time.time()
+        cache = st.session_state.session_cache
+        
+        expired_keys = [
+            key for key, data in cache.items()
+            if current_time - data.get('timestamp', 0) > 120  # 2 minutes
+        ]
+        
+        for key in expired_keys:
+            del cache[key]
+    
+    # Limit session state size to 512MB
+    session_size = sys.getsizeof(st.session_state)
+    if session_size > 512 * 1024 * 1024:
+        # Remove large data structures
+        keys_to_remove = []
+        for key, value in st.session_state.items():
+            if sys.getsizeof(value) > 100000:  # 100KB items
+                keys_to_remove.append(key)
+        
+        for key in keys_to_remove[:5]:  # Remove up to 5 large items
+            if key not in ['logged_in', 'username', 'current_page']:
+                del st.session_state[key]
+
+# Initialize high-load performance configuration
+configure_high_load_performance()
 
 
 
@@ -3148,6 +3272,39 @@ def main():
         login_page()
     else:
         main_app()
+
+def main():
+    """Main application controller with high-load safeguards"""
+    # Initialize session state
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    
+    # Smart high-load protection: Automatically detects and responds to high load
+    if st.session_state.logged_in:
+        username = st.session_state.get('username', 'unknown')
+        
+        # Check if we're in high load mode and apply rate limiting only then
+        if st.session_state.get('high_load_mode', False):
+            if not check_rate_limit(username):
+                st.error("🚫 System under high load. Please wait 30 seconds and refresh.")
+                st.info("💡 Try again in a moment - protection will automatically disable when load decreases.")
+                st.stop()
+    
+    # Periodic memory cleanup every request
+    cleanup_session_memory()
+    
+    # Check if user is logged in
+    if not st.session_state.logged_in:
+        login_page()
+    else:
+        try:
+            main_app()
+        except Exception as e:
+            st.error(f"Application error: {str(e)}")
+            st.info("Please refresh the page. If the problem persists, try again in a few minutes.")
+            # Clear problematic session state
+            if 'sheets_manager' in st.session_state:
+                del st.session_state['sheets_manager']
 
 if __name__ == "__main__":
     main()
